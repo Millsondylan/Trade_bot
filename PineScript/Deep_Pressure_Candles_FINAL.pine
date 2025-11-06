@@ -1,0 +1,357 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © YourTradingBot - Professional Buy/Sell Pressure with Inside Visualization
+
+//@version=5
+indicator("Deep Pressure Candles", shorttitle="Deep Pressure", overlay=true, max_bars_back=500, max_boxes_count=500)
+
+// ============================================================================
+// SETTINGS
+// ============================================================================
+
+showPressureBars = input.bool(true, "Show Pressure Bars Inside Candles", group="Display")
+showPressureLabels = input.bool(false, "Show Percentage Labels on Bars", group="Display")
+showOnlySignificant = input.bool(true, "Only Label Significant Imbalances (>70%)", group="Display")
+labelThreshold = input.int(70, "Imbalance Threshold %", minval=50, maxval=90, group="Display")
+
+showStats = input.bool(true, "Show Statistics Panel", group="Display")
+showCumDelta = input.bool(true, "Show Cumulative Delta Line", group="Display")
+
+// Colors
+buyColor = input.color(color.new(#00ff00, 20), "Buy Pressure", group="Colors")
+sellColor = input.color(color.new(#ff0000, 20), "Sell Pressure", group="Colors")
+neutralColor = input.color(color.new(#808080, 60), "Neutral", group="Colors")
+
+// ============================================================================
+// ACCURATE PRESSURE CALCULATION
+// ============================================================================
+
+calculatePressure() =>
+    float buyVol = 0.0
+    float sellVol = 0.0
+
+    _range = high - low
+
+    if _range == 0
+        buyVol := volume / 2
+        sellVol := volume / 2
+    else
+        // Close position in range (0-1)
+        closePosition = (close - low) / _range
+
+        // Body size
+        bodySize = math.abs(close - open)
+        bodyPercent = bodySize / _range
+
+        // Wicks
+        upperWick = high - math.max(open, close)
+        lowerWick = math.min(open, close) - low
+        upperWickPercent = upperWick / _range
+        lowerWickPercent = lowerWick / _range
+
+        // Direction
+        isBullish = close > open
+        isBearish = close < open
+
+        // Pressure score (0-1, where 1 = all buying)
+        float score = 0.5
+
+        // Factor 1: Close position (50%)
+        score := score + ((closePosition - 0.5) * 0.50)
+
+        // Factor 2: Body direction (25%)
+        if isBullish
+            score := score + (bodyPercent * 0.25)
+        else if isBearish
+            score := score - (bodyPercent * 0.25)
+
+        // Factor 3: Wick rejection (25%)
+        wickPressure = lowerWickPercent - upperWickPercent
+        score := score + (wickPressure * 0.25)
+
+        // Clamp
+        score := math.max(0, math.min(1, score))
+
+        buyVol := volume * score
+        sellVol := volume * (1 - score)
+
+    [buyVol, sellVol]
+
+[buyVolume, sellVolume] = calculatePressure()
+
+// Metrics
+delta = buyVolume - sellVolume
+buyPercent = volume > 0 ? (buyVolume / volume) * 100 : 50
+sellPercent = volume > 0 ? (sellVolume / volume) * 100 : 50
+
+// Cumulative Delta
+var float cumDelta = 0
+cumDelta := cumDelta + delta
+
+// ============================================================================
+// VISUAL: PRESSURE BARS INSIDE CANDLES
+// ============================================================================
+
+if showPressureBars and barstate.isconfirmed
+    // Calculate bar positions
+    rangeSize = high - low
+
+    if rangeSize > 0
+        // Buy pressure zone (from low upward)
+        buyHeight = rangeSize * (buyVolume / volume)
+        buyTop = low + buyHeight
+        buyBottom = low
+
+        // Sell pressure zone (from high downward)
+        sellHeight = rangeSize * (sellVolume / volume)
+        sellBottom = high - sellHeight
+        sellTop = high
+
+        // Draw buy pressure bar (green from bottom)
+        box.new(
+            left=bar_index,
+            top=buyTop,
+            right=bar_index + 1,
+            bottom=buyBottom,
+            bgcolor=buyColor,
+            border_color=color.new(buyColor, 70),
+            border_width=1
+        )
+
+        // Draw sell pressure bar (red from top)
+        box.new(
+            left=bar_index,
+            top=sellTop,
+            right=bar_index + 1,
+            bottom=sellBottom,
+            bgcolor=sellColor,
+            border_color=color.new(sellColor, 70),
+            border_width=1
+        )
+
+// ============================================================================
+// CANDLE COLORING
+// ============================================================================
+
+getCandleColor() =>
+    if buyPercent > 75
+        color.new(#00ff00, 0)  // Bright green
+    else if buyPercent > 65
+        color.new(#00ff00, 40)
+    else if buyPercent > 55
+        color.new(#00ff00, 70)
+    else if sellPercent > 75
+        color.new(#ff0000, 0)  // Bright red
+    else if sellPercent > 65
+        color.new(#ff0000, 40)
+    else if sellPercent > 55
+        color.new(#ff0000, 70)
+    else
+        neutralColor
+
+candleColor = getCandleColor()
+
+plotcandle(open, high, low, close,
+     title="Candles",
+     color=showPressureBars ? color.new(color.gray, 90) : candleColor,
+     wickcolor=showPressureBars ? color.new(color.gray, 70) : candleColor,
+     bordercolor=showPressureBars ? color.new(color.gray, 80) : candleColor)
+
+// ============================================================================
+// LABELS - ONLY SIGNIFICANT IMBALANCES
+// ============================================================================
+
+shouldShowLabel = showOnlySignificant ? (buyPercent > labelThreshold or sellPercent > labelThreshold) : true
+
+if shouldShowLabel and barstate.isconfirmed
+    if showPressureLabels
+        if buyPercent > sellPercent
+            label.new(
+                bar_index,
+                high,
+                str.tostring(math.round(buyPercent)) + "%",
+                style=label.style_none,
+                color=color.new(color.white, 100),
+                textcolor=buyColor,
+                size=size.tiny,
+                textalign=text.align_center
+            )
+        else
+            label.new(
+                bar_index,
+                high,
+                str.tostring(math.round(sellPercent)) + "%",
+                style=label.style_none,
+                color=color.new(color.white, 100),
+                textcolor=sellColor,
+                size=size.tiny,
+                textalign=text.align_center
+            )
+    else if buyPercent > labelThreshold
+        // Only show arrow for very strong pressure
+        label.new(
+            bar_index,
+            low,
+            "▲",
+            style=label.style_none,
+            color=color.new(color.white, 100),
+            textcolor=buyColor,
+            size=size.small,
+            yloc=yloc.belowbar
+        )
+    else if sellPercent > labelThreshold
+        label.new(
+            bar_index,
+            high,
+            "▼",
+            style=label.style_none,
+            color=color.new(color.white, 100),
+            textcolor=sellColor,
+            size=size.small,
+            yloc=yloc.abovebar
+        )
+
+// ============================================================================
+// CUMULATIVE DELTA LINE
+// ============================================================================
+
+if showCumDelta
+    // Normalize cumulative delta to price scale for visibility
+    var float cumDeltaBase = na
+    if na(cumDeltaBase)
+        cumDeltaBase := close
+
+    // Scale factor (adjust to make visible)
+    priceRange = ta.atr(20)
+    deltaRange = ta.stdev(delta, 20)
+    scaleFactor = deltaRange > 0 ? priceRange / deltaRange : 1
+
+    cumDeltaScaled = cumDeltaBase + (cumDelta * scaleFactor * 0.01)
+
+    cumDeltaColor = cumDelta > cumDelta[1] ? color.new(#00ff00, 50) : color.new(#ff0000, 50)
+
+    plot(cumDeltaScaled, "Cumulative Delta", color=cumDeltaColor, linewidth=2, style=plot.style_line)
+
+// ============================================================================
+// STATISTICS PANEL - CLEAN DESIGN
+// ============================================================================
+
+if showStats
+    var table stats = table.new(position.top_right, 2, 6,
+         bgcolor=color.new(#000000, 10),
+         border_width=1,
+         border_color=color.new(#333333, 50),
+         frame_width=1,
+         frame_color=color.new(#555555, 50))
+
+    if barstate.islast
+        // Header
+        table.cell(stats, 0, 0, "PRESSURE",
+             text_color=color.white,
+             text_size=size.normal,
+             bgcolor=color.new(#1976d2, 30),
+             text_halign=text.align_center)
+        table.merge_cells(stats, 0, 0, 1, 0)
+
+        // Buy
+        table.cell(stats, 0, 1, "Buy",
+             text_color=color.new(color.white, 50),
+             text_size=size.small)
+        table.cell(stats, 1, 1, str.tostring(math.round(buyPercent, 1)) + "%",
+             text_color=buyColor,
+             text_size=size.normal,
+             text_halign=text.align_right)
+
+        // Sell
+        table.cell(stats, 0, 2, "Sell",
+             text_color=color.new(color.white, 50),
+             text_size=size.small)
+        table.cell(stats, 1, 2, str.tostring(math.round(sellPercent, 1)) + "%",
+             text_color=sellColor,
+             text_size=size.normal,
+             text_halign=text.align_right)
+
+        // Divider
+        table.cell(stats, 0, 3, "━━━━━━━",
+             text_color=color.new(color.gray, 50),
+             text_size=size.tiny)
+        table.merge_cells(stats, 0, 3, 1, 3)
+
+        // Delta
+        deltaSign = delta > 0 ? "+" : ""
+        deltaColor = delta > 0 ? buyColor : sellColor
+        table.cell(stats, 0, 4, "Delta",
+             text_color=color.new(color.white, 50),
+             text_size=size.small)
+        table.cell(stats, 1, 4, deltaSign + str.tostring(math.round(delta / volume * 100, 1)) + "%",
+             text_color=deltaColor,
+             text_size=size.normal,
+             text_halign=text.align_right)
+
+        // Cumulative
+        cumSign = cumDelta > 0 ? "+" : ""
+        cumColor = cumDelta > 0 ? buyColor : sellColor
+        table.cell(stats, 0, 5, "Cum Δ",
+             text_color=color.new(color.white, 50),
+             text_size=size.small)
+        table.cell(stats, 1, 5, cumSign + str.tostring(math.round(cumDelta)),
+             text_color=cumColor,
+             text_size=size.small,
+             text_halign=text.align_right)
+
+// ============================================================================
+// DIVERGENCE DETECTION - CLEAN MARKERS
+// ============================================================================
+
+priceTrend = close - close[20]
+cumDeltaTrend = cumDelta - cumDelta[20]
+
+bullishDiv = priceTrend < 0 and cumDeltaTrend > 0 and barstate.isconfirmed
+bearishDiv = priceTrend > 0 and cumDeltaTrend < 0 and barstate.isconfirmed
+
+if bullishDiv
+    label.new(
+        bar_index,
+        low,
+        "D",
+        style=label.style_circle,
+        color=color.new(#2196f3, 30),
+        textcolor=color.white,
+        size=size.tiny,
+        tooltip="Bullish Divergence\nPrice ↓ but Buying ↑"
+    )
+
+if bearishDiv
+    label.new(
+        bar_index,
+        high,
+        "D",
+        style=label.style_circle,
+        color=color.new(#ff9800, 30),
+        textcolor=color.white,
+        size=size.tiny,
+        tooltip="Bearish Divergence\nPrice ↑ but Selling ↑"
+    )
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+alertcondition(buyPercent > labelThreshold, "Strong Buy Pressure",
+     "Strong buying ({{plot_0}}%) on {{ticker}}")
+
+alertcondition(sellPercent > labelThreshold, "Strong Sell Pressure",
+     "Strong selling ({{plot_0}}%) on {{ticker}}")
+
+alertcondition(bullishDiv, "Bullish Divergence",
+     "Bullish divergence on {{ticker}}")
+
+alertcondition(bearishDiv, "Bearish Divergence",
+     "Bearish divergence on {{ticker}}")
+
+// ============================================================================
+// OUTPUTS
+// ============================================================================
+
+plot(buyPercent, "Buy%", display=display.data_window)
+plot(sellPercent, "Sell%", display=display.data_window)
+plot(delta / volume * 100, "Delta%", display=display.data_window)
