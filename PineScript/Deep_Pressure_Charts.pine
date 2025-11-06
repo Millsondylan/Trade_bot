@@ -173,29 +173,13 @@ if showPressureBars and barstate.isconfirmed
         buyHeight = rangeSize * (buyVolume / volume)
         buyTop = low + buyHeight
 
-        buyBox := box.new(
-            left = bar_index,
-            top = buyTop,
-            right = bar_index + 1,
-            bottom = low,
-            bgcolor = buyColor,
-            border_color = na,
-            border_width = 0
-        )
+        buyBox := box.new(bar_index, buyTop, bar_index + 1, low, bgcolor=buyColor, border_color=na, border_width=0)
 
         // Sell pressure (red from top down)
         sellHeight = rangeSize * (sellVolume / volume)
         sellBottom = high - sellHeight
 
-        sellBox := box.new(
-            left = bar_index,
-            top = high,
-            right = bar_index + 1,
-            bottom = sellBottom,
-            bgcolor = sellColor,
-            border_color = na,
-            border_width = 0
-        )
+        sellBox := box.new(bar_index, high, bar_index + 1, sellBottom, bgcolor=sellColor, border_color=na, border_width=0)
 
 // ============================================================================
 // CANDLE COLORING
@@ -230,129 +214,55 @@ shouldLabel = showSignificantOnly ? (buyPercent > significanceThreshold or sellP
 
 if shouldLabel and barstate.isconfirmed
     if buyPercent > significanceThreshold
-        label.new(
-            x = bar_index,
-            y = low,
-            text = "▲",
-            style = label.style_none,
-            color = color.new(color.white, 100),
-            textcolor = color.new(#00ff00, 0),
-            size = size.normal,
-            yloc = yloc.belowbar
-        )
+        label.new(bar_index, low, "▲", style=label.style_none, color=color.new(color.white, 100), textcolor=color.new(#00ff00, 0), size=size.normal, yloc=yloc.belowbar)
 
     if sellPercent > significanceThreshold
-        label.new(
-            x = bar_index,
-            y = high,
-            text = "▼",
-            style = label.style_none,
-            color = color.new(color.white, 100),
-            textcolor = color.new(#ff0000, 0),
-            size = size.normal,
-            yloc = yloc.abovebar
-        )
+        label.new(bar_index, high, "▼", style=label.style_none, color=color.new(color.white, 100), textcolor=color.new(#ff0000, 0), size=size.normal, yloc=yloc.abovebar)
 
 // ============================================================================
 // STATISTICS PANEL - MULTI-PERIOD ANALYSIS
 // ============================================================================
 
 if showStats
-    var table statsTable = table.new(
-        position = position.top_right,
-        columns = 2,
-        rows = 11,
-        bgcolor = color.new(#000000, 10),
-        border_width = 2,
-        border_color = color.new(#333333, 40),
-        frame_width = 1,
-        frame_color = color.new(#555555, 40)
-    )
+    var table statsTable = table.new(position.top_right, 2, 11, bgcolor=color.new(#000000, 10), border_width=2, border_color=color.new(#333333, 40), frame_width=1, frame_color=color.new(#555555, 40))
 
     if barstate.islast
         // Title
-        table.cell(statsTable, 0, 0, "PRESSURE ANALYSIS",
-            text_color = color.white,
-            text_size = size.normal,
-            bgcolor = color.new(#1976d2, 20),
-            text_halign = text.align_center)
+        table.cell(statsTable, 0, 0, "PRESSURE ANALYSIS", text_color=color.white, text_size=size.normal, bgcolor=color.new(#1976d2, 20), text_halign=text.align_center)
         table.merge_cells(statsTable, 0, 0, 1, 0)
 
         // Current Candle
-        table.cell(statsTable, 0, 1, "CURRENT",
-            text_color = color.new(#ffffff, 40),
-            text_size = size.small,
-            bgcolor = color.new(#424242, 50))
+        table.cell(statsTable, 0, 1, "CURRENT", text_color=color.new(#ffffff, 40), text_size=size.small, bgcolor=color.new(#424242, 50))
         table.merge_cells(statsTable, 0, 1, 1, 1)
 
-        table.cell(statsTable, 0, 2, "Buy",
-            text_color = color.new(#ffffff, 50),
-            text_size = size.small)
-        table.cell(statsTable, 1, 2, str.tostring(math.round(buyPercent, 1)) + "%",
-            text_color = buyColor,
-            text_size = size.normal,
-            text_halign = text.align_right)
+        table.cell(statsTable, 0, 2, "Buy", text_color=color.new(#ffffff, 50), text_size=size.small)
+        table.cell(statsTable, 1, 2, str.tostring(math.round(buyPercent, 1)) + "%", text_color=buyColor, text_size=size.normal, text_halign=text.align_right)
 
-        table.cell(statsTable, 0, 3, "Sell",
-            text_color = color.new(#ffffff, 50),
-            text_size = size.small)
-        table.cell(statsTable, 1, 3, str.tostring(math.round(sellPercent, 1)) + "%",
-            text_color = sellColor,
-            text_size = size.normal,
-            text_halign = text.align_right)
+        table.cell(statsTable, 0, 3, "Sell", text_color=color.new(#ffffff, 50), text_size=size.small)
+        table.cell(statsTable, 1, 3, str.tostring(math.round(sellPercent, 1)) + "%", text_color=sellColor, text_size=size.normal, text_halign=text.align_right)
 
         // Last 5 Candles
-        table.cell(statsTable, 0, 4, "LAST 5 CANDLES",
-            text_color = color.new(#ffffff, 40),
-            text_size = size.small,
-            bgcolor = color.new(#424242, 50))
+        table.cell(statsTable, 0, 4, "LAST 5 CANDLES", text_color=color.new(#ffffff, 40), text_size=size.small, bgcolor=color.new(#424242, 50))
         table.merge_cells(statsTable, 0, 4, 1, 4)
 
-        table.cell(statsTable, 0, 5, "Buy",
-            text_color = color.new(#ffffff, 50),
-            text_size = size.small)
-        table.cell(statsTable, 1, 5, str.tostring(math.round(buy5, 1)) + "%",
-            text_color = buyColor,
-            text_size = size.normal,
-            text_halign = text.align_right)
+        table.cell(statsTable, 0, 5, "Buy", text_color=color.new(#ffffff, 50), text_size=size.small)
+        table.cell(statsTable, 1, 5, str.tostring(math.round(buy5, 1)) + "%", text_color=buyColor, text_size=size.normal, text_halign=text.align_right)
 
-        table.cell(statsTable, 0, 6, "Sell",
-            text_color = color.new(#ffffff, 50),
-            text_size = size.small)
-        table.cell(statsTable, 1, 6, str.tostring(math.round(sell5, 1)) + "%",
-            text_color = sellColor,
-            text_size = size.normal,
-            text_halign = text.align_right)
+        table.cell(statsTable, 0, 6, "Sell", text_color=color.new(#ffffff, 50), text_size=size.small)
+        table.cell(statsTable, 1, 6, str.tostring(math.round(sell5, 1)) + "%", text_color=sellColor, text_size=size.normal, text_halign=text.align_right)
 
         // Last 15 Candles
-        table.cell(statsTable, 0, 7, "LAST 15 CANDLES",
-            text_color = color.new(#ffffff, 40),
-            text_size = size.small,
-            bgcolor = color.new(#424242, 50))
+        table.cell(statsTable, 0, 7, "LAST 15 CANDLES", text_color=color.new(#ffffff, 40), text_size=size.small, bgcolor=color.new(#424242, 50))
         table.merge_cells(statsTable, 0, 7, 1, 7)
 
-        table.cell(statsTable, 0, 8, "Buy",
-            text_color = color.new(#ffffff, 50),
-            text_size = size.small)
-        table.cell(statsTable, 1, 8, str.tostring(math.round(buy15, 1)) + "%",
-            text_color = buyColor,
-            text_size = size.normal,
-            text_halign = text.align_right)
+        table.cell(statsTable, 0, 8, "Buy", text_color=color.new(#ffffff, 50), text_size=size.small)
+        table.cell(statsTable, 1, 8, str.tostring(math.round(buy15, 1)) + "%", text_color=buyColor, text_size=size.normal, text_halign=text.align_right)
 
-        table.cell(statsTable, 0, 9, "Sell",
-            text_color = color.new(#ffffff, 50),
-            text_size = size.small)
-        table.cell(statsTable, 1, 9, str.tostring(math.round(sell15, 1)) + "%",
-            text_color = sellColor,
-            text_size = size.normal,
-            text_halign = text.align_right)
+        table.cell(statsTable, 0, 9, "Sell", text_color=color.new(#ffffff, 50), text_size=size.small)
+        table.cell(statsTable, 1, 9, str.tostring(math.round(sell15, 1)) + "%", text_color=sellColor, text_size=size.normal, text_halign=text.align_right)
 
         // Daily Bias
-        table.cell(statsTable, 0, 10, "DAILY BIAS: " + dailyBias,
-            text_color = dailyBias == "BULLISH" ? buyColor : dailyBias == "BEARISH" ? sellColor : color.gray,
-            text_size = size.small,
-            bgcolor = color.new(#424242, 50),
-            text_halign = text.align_center)
+        table.cell(statsTable, 0, 10, "DAILY BIAS: " + dailyBias, text_color=dailyBias == "BULLISH" ? buyColor : dailyBias == "BEARISH" ? sellColor : color.gray, text_size=size.small, bgcolor=color.new(#424242, 50), text_halign=text.align_center)
         table.merge_cells(statsTable, 0, 10, 1, 10)
 
 // ============================================================================
