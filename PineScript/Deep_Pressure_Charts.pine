@@ -2,16 +2,11 @@
 // © YourTradingBot - Deep Pressure Charts with Multi-Period Analysis
 
 //@version=6
-indicator("Deep Pressure Charts", shorttitle="Pressure", overlay=true, max_bars_back=500, max_boxes_count=500, max_labels_count=100)
+indicator("Deep Pressure Charts", shorttitle="Pressure", overlay=true, max_bars_back=500)
 
 // ============================================================================
 // SETTINGS
 // ============================================================================
-
-showPressureBars = input.bool(true, "Show Pressure Zones Inside Candles", group="Display")
-showSignificantOnly = input.bool(true, "Only Mark Strong Imbalances (>70%)", group="Display")
-significanceThreshold = input.int(70, "Imbalance Threshold %", minval=60, maxval=90, group="Display")
-showStats = input.bool(true, "Show Statistics Panel", group="Display")
 
 buyColor = input.color(color.new(#00ff00, 30), "Buy Pressure Color", group="Colors")
 sellColor = input.color(color.new(#ff0000, 30), "Sell Pressure Color", group="Colors")
@@ -157,120 +152,59 @@ dailySellPercent = dailyTotalVol > 0 ? (dailySellVol / dailyTotalVol) * 100 : 50
 // Determine bias
 dailyBias = dailyBuyPercent > 55 ? "BULLISH" : dailySellPercent > 55 ? "BEARISH" : "NEUTRAL"
 
-// ============================================================================
-// VISUAL: PRESSURE ZONES INSIDE CANDLES
-// ============================================================================
-
-// Create pressure zones using boxes (must be at root level)
-var box buyBox = na
-var box sellBox = na
-
-if showPressureBars and barstate.isconfirmed
-    rangeSize = high - low
-
-    if rangeSize > 0
-        // Buy pressure (green from bottom up)
-        buyHeight = rangeSize * (buyVolume / volume)
-        buyTop = low + buyHeight
-
-        buyBox := box.new(bar_index, buyTop, bar_index + 1, low, bgcolor=buyColor)
-
-        // Sell pressure (red from top down)
-        sellHeight = rangeSize * (sellVolume / volume)
-        sellBottom = high - sellHeight
-
-        sellBox := box.new(bar_index, high, bar_index + 1, sellBottom, bgcolor=sellColor)
+// No visual overlays - dashboard only
 
 // ============================================================================
-// CANDLE COLORING
+// STATISTICS PANEL - COMPACT TOP CENTER
 // ============================================================================
 
-getCandleColor() =>
-    if buyPercent > 75
-        color.new(#00ff00, 0)
-    else if buyPercent > 65
-        color.new(#00ff00, 50)
-    else if buyPercent > 55
-        color.new(#00ff00, 80)
-    else if sellPercent > 75
-        color.new(#ff0000, 0)
-    else if sellPercent > 65
-        color.new(#ff0000, 50)
-    else if sellPercent > 55
-        color.new(#ff0000, 80)
-    else
-        color.new(#808080, 70)
+var table statsTable = table.new(position.top_center, 2, 11, bgcolor=color.new(#000000, 15), border_width=1, border_color=color.new(#333333, 50), frame_width=1, frame_color=color.new(#555555, 50))
 
-candleColor = showPressureBars ? color.new(#808080, 95) : getCandleColor()
-wickColor = showPressureBars ? color.new(#808080, 80) : getCandleColor()
+if barstate.islast
+    // Title
+    table.cell(statsTable, 0, 0, "PRESSURE", text_color=color.white, text_size=size.small, bgcolor=color.new(#1976d2, 30), text_halign=text.align_center)
+    table.merge_cells(statsTable, 0, 0, 1, 0)
 
-plotcandle(open, high, low, close, title="Candles", color=candleColor, wickcolor=wickColor, bordercolor=candleColor)
+    // Current Candle
+    table.cell(statsTable, 0, 1, "NOW", text_color=color.new(#ffffff, 40), text_size=size.tiny, bgcolor=color.new(#424242, 60))
+    table.merge_cells(statsTable, 0, 1, 1, 1)
 
-// ============================================================================
-// LABELS FOR SIGNIFICANT PRESSURE
-// ============================================================================
+    table.cell(statsTable, 0, 2, "Buy", text_color=color.new(#ffffff, 50), text_size=size.tiny)
+    table.cell(statsTable, 1, 2, str.tostring(math.round(buyPercent, 1)) + "%", text_color=buyColor, text_size=size.small, text_halign=text.align_right)
 
-shouldLabel = showSignificantOnly ? (buyPercent > significanceThreshold or sellPercent > significanceThreshold) : false
+    table.cell(statsTable, 0, 3, "Sell", text_color=color.new(#ffffff, 50), text_size=size.tiny)
+    table.cell(statsTable, 1, 3, str.tostring(math.round(sellPercent, 1)) + "%", text_color=sellColor, text_size=size.small, text_halign=text.align_right)
 
-if shouldLabel and barstate.isconfirmed
-    if buyPercent > significanceThreshold
-        label.new(bar_index, low, "▲", style=label.style_none, color=color.new(color.white, 100), textcolor=color.new(#00ff00, 0), size=size.normal, yloc=yloc.belowbar)
+    // Last 5 Candles
+    table.cell(statsTable, 0, 4, "5 BARS", text_color=color.new(#ffffff, 40), text_size=size.tiny, bgcolor=color.new(#424242, 60))
+    table.merge_cells(statsTable, 0, 4, 1, 4)
 
-    if sellPercent > significanceThreshold
-        label.new(bar_index, high, "▼", style=label.style_none, color=color.new(color.white, 100), textcolor=color.new(#ff0000, 0), size=size.normal, yloc=yloc.abovebar)
+    table.cell(statsTable, 0, 5, "Buy", text_color=color.new(#ffffff, 50), text_size=size.tiny)
+    table.cell(statsTable, 1, 5, str.tostring(math.round(buy5, 1)) + "%", text_color=buyColor, text_size=size.small, text_halign=text.align_right)
 
-// ============================================================================
-// STATISTICS PANEL - MULTI-PERIOD ANALYSIS
-// ============================================================================
+    table.cell(statsTable, 0, 6, "Sell", text_color=color.new(#ffffff, 50), text_size=size.tiny)
+    table.cell(statsTable, 1, 6, str.tostring(math.round(sell5, 1)) + "%", text_color=sellColor, text_size=size.small, text_halign=text.align_right)
 
-if showStats
-    var table statsTable = table.new(position.top_right, 2, 11, bgcolor=color.new(#000000, 10), border_width=2, border_color=color.new(#333333, 40), frame_width=1, frame_color=color.new(#555555, 40))
+    // Last 15 Candles
+    table.cell(statsTable, 0, 7, "15 BARS", text_color=color.new(#ffffff, 40), text_size=size.tiny, bgcolor=color.new(#424242, 60))
+    table.merge_cells(statsTable, 0, 7, 1, 7)
 
-    if barstate.islast
-        // Title
-        table.cell(statsTable, 0, 0, "PRESSURE ANALYSIS", text_color=color.white, text_size=size.normal, bgcolor=color.new(#1976d2, 20), text_halign=text.align_center)
-        table.merge_cells(statsTable, 0, 0, 1, 0)
+    table.cell(statsTable, 0, 8, "Buy", text_color=color.new(#ffffff, 50), text_size=size.tiny)
+    table.cell(statsTable, 1, 8, str.tostring(math.round(buy15, 1)) + "%", text_color=buyColor, text_size=size.small, text_halign=text.align_right)
 
-        // Current Candle
-        table.cell(statsTable, 0, 1, "CURRENT", text_color=color.new(#ffffff, 40), text_size=size.small, bgcolor=color.new(#424242, 50))
-        table.merge_cells(statsTable, 0, 1, 1, 1)
+    table.cell(statsTable, 0, 9, "Sell", text_color=color.new(#ffffff, 50), text_size=size.tiny)
+    table.cell(statsTable, 1, 9, str.tostring(math.round(sell15, 1)) + "%", text_color=sellColor, text_size=size.small, text_halign=text.align_right)
 
-        table.cell(statsTable, 0, 2, "Buy", text_color=color.new(#ffffff, 50), text_size=size.small)
-        table.cell(statsTable, 1, 2, str.tostring(math.round(buyPercent, 1)) + "%", text_color=buyColor, text_size=size.normal, text_halign=text.align_right)
-
-        table.cell(statsTable, 0, 3, "Sell", text_color=color.new(#ffffff, 50), text_size=size.small)
-        table.cell(statsTable, 1, 3, str.tostring(math.round(sellPercent, 1)) + "%", text_color=sellColor, text_size=size.normal, text_halign=text.align_right)
-
-        // Last 5 Candles
-        table.cell(statsTable, 0, 4, "LAST 5 CANDLES", text_color=color.new(#ffffff, 40), text_size=size.small, bgcolor=color.new(#424242, 50))
-        table.merge_cells(statsTable, 0, 4, 1, 4)
-
-        table.cell(statsTable, 0, 5, "Buy", text_color=color.new(#ffffff, 50), text_size=size.small)
-        table.cell(statsTable, 1, 5, str.tostring(math.round(buy5, 1)) + "%", text_color=buyColor, text_size=size.normal, text_halign=text.align_right)
-
-        table.cell(statsTable, 0, 6, "Sell", text_color=color.new(#ffffff, 50), text_size=size.small)
-        table.cell(statsTable, 1, 6, str.tostring(math.round(sell5, 1)) + "%", text_color=sellColor, text_size=size.normal, text_halign=text.align_right)
-
-        // Last 15 Candles
-        table.cell(statsTable, 0, 7, "LAST 15 CANDLES", text_color=color.new(#ffffff, 40), text_size=size.small, bgcolor=color.new(#424242, 50))
-        table.merge_cells(statsTable, 0, 7, 1, 7)
-
-        table.cell(statsTable, 0, 8, "Buy", text_color=color.new(#ffffff, 50), text_size=size.small)
-        table.cell(statsTable, 1, 8, str.tostring(math.round(buy15, 1)) + "%", text_color=buyColor, text_size=size.normal, text_halign=text.align_right)
-
-        table.cell(statsTable, 0, 9, "Sell", text_color=color.new(#ffffff, 50), text_size=size.small)
-        table.cell(statsTable, 1, 9, str.tostring(math.round(sell15, 1)) + "%", text_color=sellColor, text_size=size.normal, text_halign=text.align_right)
-
-        // Daily Bias
-        table.cell(statsTable, 0, 10, "DAILY BIAS: " + dailyBias, text_color=dailyBias == "BULLISH" ? buyColor : dailyBias == "BEARISH" ? sellColor : color.gray, text_size=size.small, bgcolor=color.new(#424242, 50), text_halign=text.align_center)
-        table.merge_cells(statsTable, 0, 10, 1, 10)
+    // Daily Bias
+    table.cell(statsTable, 0, 10, "DAY: " + dailyBias, text_color=dailyBias == "BULLISH" ? buyColor : dailyBias == "BEARISH" ? sellColor : color.gray, text_size=size.tiny, bgcolor=color.new(#424242, 60), text_halign=text.align_center)
+    table.merge_cells(statsTable, 0, 10, 1, 10)
 
 // ============================================================================
 // ALERTS
 // ============================================================================
 
-alertcondition(buyPercent > significanceThreshold, "Strong Buy Pressure", "Strong buying ({{plot_0}}%) on {{ticker}}")
-alertcondition(sellPercent > significanceThreshold, "Strong Sell Pressure", "Strong selling ({{plot_0}}%) on {{ticker}}")
+alertcondition(buyPercent > 70, "Strong Buy Pressure", "Strong buying on {{ticker}}")
+alertcondition(sellPercent > 70, "Strong Sell Pressure", "Strong selling on {{ticker}}")
 
 // ============================================================================
 // PLOT OUTPUTS
