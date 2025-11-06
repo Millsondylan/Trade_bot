@@ -155,49 +155,32 @@ dailyBias = dailyBuyPercent > 55 ? "BULLISH" : dailySellPercent > 55 ? "BEARISH"
 // No visual overlays - dashboard only
 
 // ============================================================================
-// STATISTICS PANEL - COMPACT TOP CENTER
+// STATISTICS PANEL - HORIZONTAL LAYOUT TOP CENTER
 // ============================================================================
 
-var table statsTable = table.new(position.top_center, 2, 11, bgcolor=color.new(#000000, 15), border_width=1, border_color=color.new(#333333, 50), frame_width=1, frame_color=color.new(#555555, 50))
+var table statsTable = table.new(position.top_center, 5, 3, bgcolor=color.new(#000000, 15), border_width=1, border_color=color.new(#333333, 50), frame_width=1, frame_color=color.new(#555555, 50))
 
 if barstate.islast
-    // Title
-    table.cell(statsTable, 0, 0, "PRESSURE", text_color=color.white, text_size=size.small, bgcolor=color.new(#1976d2, 30), text_halign=text.align_center)
-    table.merge_cells(statsTable, 0, 0, 1, 0)
+    // Row 0: Headers
+    table.cell(statsTable, 0, 0, "PRESSURE", text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1976d2, 30), text_halign=text.align_center)
+    table.cell(statsTable, 1, 0, "NOW", text_color=color.white, text_size=size.tiny, bgcolor=color.new(#424242, 60), text_halign=text.align_center)
+    table.cell(statsTable, 2, 0, "5 BARS", text_color=color.white, text_size=size.tiny, bgcolor=color.new(#424242, 60), text_halign=text.align_center)
+    table.cell(statsTable, 3, 0, "15 BARS", text_color=color.white, text_size=size.tiny, bgcolor=color.new(#424242, 60), text_halign=text.align_center)
+    table.cell(statsTable, 4, 0, "DAY", text_color=color.white, text_size=size.tiny, bgcolor=color.new(#424242, 60), text_halign=text.align_center)
 
-    // Current Candle
-    table.cell(statsTable, 0, 1, "NOW", text_color=color.new(#ffffff, 40), text_size=size.tiny, bgcolor=color.new(#424242, 60))
-    table.merge_cells(statsTable, 0, 1, 1, 1)
+    // Row 1: Buy percentages
+    table.cell(statsTable, 0, 1, "Buy", text_color=color.new(#ffffff, 50), text_size=size.tiny)
+    table.cell(statsTable, 1, 1, str.tostring(math.round(buyPercent, 1)) + "%", text_color=buyColor, text_size=size.small, text_halign=text.align_center)
+    table.cell(statsTable, 2, 1, str.tostring(math.round(buy5, 1)) + "%", text_color=buyColor, text_size=size.small, text_halign=text.align_center)
+    table.cell(statsTable, 3, 1, str.tostring(math.round(buy15, 1)) + "%", text_color=buyColor, text_size=size.small, text_halign=text.align_center)
+    table.cell(statsTable, 4, 1, dailyBias, text_color=dailyBias == "BULLISH" ? buyColor : dailyBias == "BEARISH" ? sellColor : color.gray, text_size=size.tiny, text_halign=text.align_center)
 
-    table.cell(statsTable, 0, 2, "Buy", text_color=color.new(#ffffff, 50), text_size=size.tiny)
-    table.cell(statsTable, 1, 2, str.tostring(math.round(buyPercent, 1)) + "%", text_color=buyColor, text_size=size.small, text_halign=text.align_right)
-
-    table.cell(statsTable, 0, 3, "Sell", text_color=color.new(#ffffff, 50), text_size=size.tiny)
-    table.cell(statsTable, 1, 3, str.tostring(math.round(sellPercent, 1)) + "%", text_color=sellColor, text_size=size.small, text_halign=text.align_right)
-
-    // Last 5 Candles
-    table.cell(statsTable, 0, 4, "5 BARS", text_color=color.new(#ffffff, 40), text_size=size.tiny, bgcolor=color.new(#424242, 60))
-    table.merge_cells(statsTable, 0, 4, 1, 4)
-
-    table.cell(statsTable, 0, 5, "Buy", text_color=color.new(#ffffff, 50), text_size=size.tiny)
-    table.cell(statsTable, 1, 5, str.tostring(math.round(buy5, 1)) + "%", text_color=buyColor, text_size=size.small, text_halign=text.align_right)
-
-    table.cell(statsTable, 0, 6, "Sell", text_color=color.new(#ffffff, 50), text_size=size.tiny)
-    table.cell(statsTable, 1, 6, str.tostring(math.round(sell5, 1)) + "%", text_color=sellColor, text_size=size.small, text_halign=text.align_right)
-
-    // Last 15 Candles
-    table.cell(statsTable, 0, 7, "15 BARS", text_color=color.new(#ffffff, 40), text_size=size.tiny, bgcolor=color.new(#424242, 60))
-    table.merge_cells(statsTable, 0, 7, 1, 7)
-
-    table.cell(statsTable, 0, 8, "Buy", text_color=color.new(#ffffff, 50), text_size=size.tiny)
-    table.cell(statsTable, 1, 8, str.tostring(math.round(buy15, 1)) + "%", text_color=buyColor, text_size=size.small, text_halign=text.align_right)
-
-    table.cell(statsTable, 0, 9, "Sell", text_color=color.new(#ffffff, 50), text_size=size.tiny)
-    table.cell(statsTable, 1, 9, str.tostring(math.round(sell15, 1)) + "%", text_color=sellColor, text_size=size.small, text_halign=text.align_right)
-
-    // Daily Bias
-    table.cell(statsTable, 0, 10, "DAY: " + dailyBias, text_color=dailyBias == "BULLISH" ? buyColor : dailyBias == "BEARISH" ? sellColor : color.gray, text_size=size.tiny, bgcolor=color.new(#424242, 60), text_halign=text.align_center)
-    table.merge_cells(statsTable, 0, 10, 1, 10)
+    // Row 2: Sell percentages
+    table.cell(statsTable, 0, 2, "Sell", text_color=color.new(#ffffff, 50), text_size=size.tiny)
+    table.cell(statsTable, 1, 2, str.tostring(math.round(sellPercent, 1)) + "%", text_color=sellColor, text_size=size.small, text_halign=text.align_center)
+    table.cell(statsTable, 2, 2, str.tostring(math.round(sell5, 1)) + "%", text_color=sellColor, text_size=size.small, text_halign=text.align_center)
+    table.cell(statsTable, 3, 2, str.tostring(math.round(sell15, 1)) + "%", text_color=sellColor, text_size=size.small, text_halign=text.align_center)
+    table.cell(statsTable, 4, 2, "", text_color=color.gray, text_size=size.tiny)
 
 // ============================================================================
 // ALERTS
