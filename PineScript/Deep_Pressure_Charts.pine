@@ -1,8 +1,8 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © YourTradingBot - Deep Pressure Charts with Multi-Period Analysis
 
-//@version=5
-indicator("Deep Pressure Charts", shorttitle="Deep Pressure", overlay=true, max_bars_back=500, max_boxes_count=500, max_labels_count=100)
+//@version=6
+indicator("Deep Pressure Charts", shorttitle="Pressure", overlay=true, max_bars_back=500, max_boxes_count=500, max_labels_count=100)
 
 // ============================================================================
 // SETTINGS
@@ -173,13 +173,13 @@ if showPressureBars and barstate.isconfirmed
         buyHeight = rangeSize * (buyVolume / volume)
         buyTop = low + buyHeight
 
-        buyBox := box.new(bar_index, buyTop, bar_index + 1, low, bgcolor=buyColor, border_color=na, border_width=0)
+        buyBox := box.new(bar_index, buyTop, bar_index + 1, low, bgcolor=buyColor)
 
         // Sell pressure (red from top down)
         sellHeight = rangeSize * (sellVolume / volume)
         sellBottom = high - sellHeight
 
-        sellBox := box.new(bar_index, high, bar_index + 1, sellBottom, bgcolor=sellColor, border_color=na, border_width=0)
+        sellBox := box.new(bar_index, high, bar_index + 1, sellBottom, bgcolor=sellColor)
 
 // ============================================================================
 // CANDLE COLORING
