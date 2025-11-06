@@ -147,20 +147,16 @@ pressureColor = getColor()
 // VISUALIZATION
 // ============================================================================
 
-if colorMode == "Pressure Candles"
-    // Draw candles colored by TRUE buying/selling pressure
-    plotcandle(open, high, low, close,
-         title="Pressure Candles",
-         color=pressureColor,
-         wickcolor=pressureColor,
-         bordercolor=pressureColor)
-else
-    // Show traditional candles
-    plotcandle(open, high, low, close,
-         title="Traditional Candles",
-         color=close > open ? color.new(#26a69a, 0) : color.new(#ef5350, 0),
-         wickcolor=close > open ? color.new(#26a69a, 0) : color.new(#ef5350, 0),
-         bordercolor=close > open ? color.new(#26a69a, 0) : color.new(#ef5350, 0))
+// Determine candle colors based on mode
+candleColor = colorMode == "Pressure Candles" ? pressureColor :
+     (close > open ? color.new(#26a69a, 0) : color.new(#ef5350, 0))
+
+// Plot candles (must be at root level, not in if statement)
+plotcandle(open, high, low, close,
+     title="Candles",
+     color=candleColor,
+     wickcolor=candleColor,
+     bordercolor=candleColor)
 
 // ============================================================================
 // STATISTICS PANEL
