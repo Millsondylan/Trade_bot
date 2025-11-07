@@ -475,18 +475,18 @@ if orb_ready and not orb_box_drawn and not na(orb_h) and not na(orb_l) and show_
     // Ultra clear rectangle with thick bright borders
     box_color = color.new(color.aqua, 85)  // Bright aqua fill
     border_color = color.new(color.aqua, 0)  // Solid bright aqua border
-    orb_box := box.new(orb_start_bar, orb_h, bar_index + 50, orb_l,
+    // Don't use extend - we'll manually set right edge to market close
+    orb_box := box.new(orb_start_bar, orb_h, bar_index + 1, orb_l,
                        border_color=border_color,
                        border_width=3,  // Thicker border
                        bgcolor=box_color,
-                       extend=extend.right,
                        text="ORB ZONE",
                        text_size=size.normal,  // Larger text
                        text_color=color.new(color.aqua, 0))  // Bright text
     orb_box_drawn := true
 
-// Update box right edge on each bar (without creating new box)
-if orb_box_drawn and not na(orb_box) and show_lines
+// FIX #6: Update box to extend until market close (EOD), not beyond
+if orb_box_drawn and not na(orb_box) and show_lines and is_market_open()
     box.set_right(orb_box, bar_index)
 
 // EMAs
