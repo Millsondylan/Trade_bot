@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 indicator("DAX ORB Ultimate - ALGO Suite", overlay=true, max_labels_count=200, max_lines_count=100)
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -475,20 +475,19 @@ if orb_ready and not orb_box_drawn and not na(orb_h) and not na(orb_l) and show_
     // Ultra clear rectangle with thick bright borders
     box_color = color.new(color.aqua, 85)  // Bright aqua fill
     border_color = color.new(color.aqua, 0)  // Solid bright aqua border
-    // Don't use extend - we'll manually set right edge to market close
-    orb_box := box.new(orb_start_bar, orb_h, bar_index + 1, orb_l,
+    // Use extend=extend.right to automatically extend the box
+    orb_box := box.new(orb_start_bar, orb_h, bar_index + 20, orb_l,
                        border_color=border_color,
                        border_width=3,  // Thicker border
                        bgcolor=box_color,
+                       extend=extend.right,
                        text="ORB ZONE",
                        text_size=size.normal,  // Larger text
                        text_color=color.new(color.aqua, 0))  // Bright text
     orb_box_drawn := true
 
-// FIX #6: Update box to extend through the day
-// Update on every bar after it's drawn (will extend to current bar)
-if orb_box_drawn and not na(orb_box) and show_lines
-    box.set_right(orb_box, bar_index)
+// FIX #7: Let Pine Script handle box extension automatically
+// No manual updates needed - extend=extend.right handles it
 
 // EMAs
 plot(use_ema ? ema9 : na, "EMA9", color.new(color.blue, 20), 1)
@@ -599,7 +598,7 @@ if barstate.islast and show_lines
 
 // ════════════════════════ DASHBOARD ════════════════════════
 
-var table dash = table.new(position.top_right, 2, 20, bgcolor=color.new(color.black, 5), border_width=1, border_color=color.new(color.gray, 60))
+var table dash = table.new(position.top_right, 2, 30, bgcolor=color.new(color.black, 5), border_width=1, border_color=color.new(color.gray, 60))
 
 if barstate.islast and show_dash
     r = 0
