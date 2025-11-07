@@ -335,52 +335,16 @@ p2 = plot(not na(current_orb_l) ? current_orb_l : na, display=display.none)
 fill_color = is_building ? color.new(color.blue, 93) : color.new(color.blue, 88)
 fill(p1, p2, fill_color, title="ORB Zone")
 
-// FIX #2: Use polylines instead of boxes for reliable extension
-var polyline orb_top_line = na
-var polyline orb_bottom_line = na
-var bool orb_lines_drawn = false
+// FIX #2: Use simple plot lines for ORB levels - works on all timeframes
+// This is the most reliable approach across all timeframes
 
-// Reset on new day
-if ta.change(time("D")) != 0
-    if not na(orb_top_line)
-        polyline.delete(orb_top_line)
-        polyline.delete(orb_bottom_line)
-    orb_top_line := na
-    orb_bottom_line := na
-    orb_lines_drawn := false
+// Plot ORB levels as horizontal lines when ready
+orb_high_line = orb_ready and show_lines ? orb_h : na
+orb_low_line = orb_ready and show_lines ? orb_l : na
 
-// Create extending lines when ORB becomes ready
-if orb_ready and not orb_lines_drawn and not na(orb_h) and not na(orb_l) and show_lines
-    // Create top line (ORB high) - extends infinitely to right
-    orb_top_line := polyline.new(
-        array.from(
-            polyline.point.new(bar_index, orb_h),
-            polyline.point.new(bar_index + 500, orb_h)
-        ),
-        line_color=color.new(color.aqua, 0),
-        line_width=3,
-        line_style=line.style_solid
-    )
-
-    // Create bottom line (ORB low) - extends infinitely to right
-    orb_bottom_line := polyline.new(
-        array.from(
-            polyline.point.new(bar_index, orb_l),
-            polyline.point.new(bar_index + 500, orb_l)
-        ),
-        line_color=color.new(color.aqua, 0),
-        line_width=3,
-        line_style=line.style_solid
-    )
-
-    orb_lines_drawn := true
-
-// Update line endpoints on every bar to extend them
-if orb_lines_drawn and not na(orb_top_line) and not na(orb_bottom_line) and show_lines
-    // Update top line endpoint
-    polyline.set_point(orb_top_line, 1, polyline.point.new(bar_index + 500, orb_h))
-    // Update bottom line endpoint
-    polyline.set_point(orb_bottom_line, 1, polyline.point.new(bar_index + 500, orb_l))
+// Plot the ORB levels as thick aqua lines
+plot(orb_high_line, "ORB High", color=color.new(color.aqua, 0), linewidth=3, style=plot.style_line)
+plot(orb_low_line, "ORB Low", color=color.new(color.aqua, 0), linewidth=3, style=plot.style_line)
 
 // FIX #7: Let Pine Script handle box extension automatically
 // No manual updates needed - extend=extend.right handles it
