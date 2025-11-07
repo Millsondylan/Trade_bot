@@ -28,12 +28,7 @@ use_macd = input.bool(true, "MACD Filter", group="Technical Filters")
 use_vol = input.bool(true, "Volume Filter", group="Technical Filters")
 use_bb = input.bool(true, "Bollinger Filter", group="Technical Filters")
 
-use_fixed = input.bool(false, "Fixed SL/TP", group="Risk Management")
-fixed_sl = input.float(50, "Fixed SL Points", minval=10, group="Risk Management")
-fixed_tp = input.float(150, "Fixed TP Points", minval=10, group="Risk Management")
-atr_sl = input.float(2.0, "ATR SL Mult", minval=0.5, group="Risk Management")
-atr_tp = input.float(3.0, "ATR TP Mult", minval=0.5, group="Risk Management")
-min_rr = input.float(2.0, "Min R:R", minval=1.0, group="Risk Management")
+// SL/TP functionality removed - pure signal generation only
 
 show_dash = input.bool(true, "Show Dashboard", group="Display")
 show_lines = input.bool(true, "Show Lines", group="Display")
@@ -58,7 +53,7 @@ is_market_open() =>
 
 // ════════════════════════ DATA GATHERING (M1) ════════════════════════
 
-// Get M1 data for ORB construction (works on ANY chart timeframe)
+// Get M1 data for ORB construction (ORB calculated from 1-minute bars, visible on ALL timeframes)
 [m1_time, m1_open, m1_high, m1_low, m1_close] = request.security(syminfo.tickerid, "1", [time, open, high, low, close], barmerge.gaps_off, barmerge.lookahead_off)
 
 // Daily data
@@ -235,127 +230,13 @@ daily_ok = yest_size >= 50  // Reduced from 100
 buy = brk_bull and consensus_b and tech_bull and is_market_open()
 sell = brk_bear and consensus_s and tech_bear and is_market_open()
 
-// ════════════════════════ SL/TP ════════════════════════
+// ════════════════════════ CLEAN SIGNALS ════════════════════════
 
-// IMMEDIATE SL/TP LEVELS - Calculated as soon as ORB is ready (at 8:00)
-var float long_entry = na
-var float long_sl = na
-var float long_tp = na
-var float short_entry = na
-var float short_sl = na
-var float short_tp = na
+// Simple signal generation without SL/TP complexity
+buy_final = buy
+sell_final = sell
 
-// Calculate potential levels immediately when ORB is ready
-if orb_ready and not na(orb_h) and not na(orb_l)
-    // Long scenario: Entry at ORB high breakout
-    long_entry := orb_h
-    long_sl := use_fixed ? long_entry - fixed_sl : long_entry - atr * atr_sl
-    long_tp := use_fixed ? long_entry + fixed_tp : long_entry + atr * atr_tp
-
-    // Short scenario: Entry at ORB low breakout
-    short_entry := orb_l
-    short_sl := use_fixed ? short_entry + fixed_sl : short_entry + atr * atr_sl
-    short_tp := use_fixed ? short_entry - fixed_tp : short_entry - atr * atr_tp
-
-// Signal-based entry tracking (for dashboard and alerts)
-var float buy_entry = na
-var float buy_sl = na
-var float buy_tp = na
-var float sell_entry = na
-var float sell_sl = na
-var float sell_tp = na
-
-if buy
-    buy_entry := close
-    buy_sl := use_fixed ? buy_entry - fixed_sl : buy_entry - atr * atr_sl
-    buy_tp := use_fixed ? buy_entry + fixed_tp : buy_entry + atr * atr_tp
-
-if sell
-    sell_entry := close
-    sell_sl := use_fixed ? sell_entry + fixed_sl : sell_entry + atr * atr_sl
-    sell_tp := use_fixed ? sell_entry - fixed_tp : sell_entry - atr * atr_tp
-
-buy_rr = not na(buy_entry) ? (buy_tp - buy_entry) / (buy_entry - buy_sl) : 0
-sell_rr = not na(sell_entry) ? (sell_entry - sell_tp) / (sell_sl - sell_entry) : 0
-
-buy_final = buy and buy_rr >= min_rr
-sell_final = sell and sell_rr >= min_rr
-
-// ════════════════════════ TRAILING STOPS ════════════════════════
-
-// Trailing Stop Loss and Take Profit Management
-var float trailing_sl_long = na
-var float trailing_sl_short = na
-var float trailing_tp_long = na
-var float trailing_tp_short = na
-var bool in_long = false
-var bool in_short = false
-var float highest_since_entry = na
-var float lowest_since_entry = na
-
-// Enter long position
-if buy_final and not in_long
-    in_long := true
-    in_short := false
-    trailing_sl_long := buy_sl
-    trailing_tp_long := buy_tp
-    highest_since_entry := close
-
-// Enter short position
-if sell_final and not in_short
-    in_short := true
-    in_long := false
-    trailing_sl_short := sell_sl
-    trailing_tp_short := sell_tp
-    lowest_since_entry := close
-
-// Update trailing stops for LONG
-if in_long
-    // Track highest price since entry
-    highest_since_entry := math.max(highest_since_entry, high)
-
-    // Trail stop loss (moves up as price moves up)
-    // When price moves 1 ATR in profit, move SL to breakeven
-    // When price moves 2 ATR in profit, move SL to +1 ATR
-    profit_atr = (highest_since_entry - buy_entry) / atr
-    if profit_atr >= 2.0
-        trailing_sl_long := math.max(trailing_sl_long, buy_entry + atr * 1.0)
-    else if profit_atr >= 1.0
-        trailing_sl_long := math.max(trailing_sl_long, buy_entry)
-
-    // Smart trailing TP - extends TP if strong momentum
-    if highest_since_entry > trailing_tp_long * 0.9 and rsi > 60  // Within 10% of TP and strong momentum
-        trailing_tp_long := trailing_tp_long + atr * 0.5  // Extend TP
-
-    // Exit conditions
-    if close <= trailing_sl_long or close >= trailing_tp_long
-        in_long := false
-        trailing_sl_long := na
-        trailing_tp_long := na
-        highest_since_entry := na
-
-// Update trailing stops for SHORT
-if in_short
-    // Track lowest price since entry
-    lowest_since_entry := math.min(lowest_since_entry, low)
-
-    // Trail stop loss (moves down as price moves down)
-    profit_atr = (sell_entry - lowest_since_entry) / atr
-    if profit_atr >= 2.0
-        trailing_sl_short := math.min(trailing_sl_short, sell_entry - atr * 1.0)
-    else if profit_atr >= 1.0
-        trailing_sl_short := math.min(trailing_sl_short, sell_entry)
-
-    // Smart trailing TP - extends TP if strong momentum
-    if lowest_since_entry < trailing_tp_short * 1.1 and rsi < 40  // Within 10% of TP and strong momentum
-        trailing_tp_short := trailing_tp_short - atr * 0.5  // Extend TP
-
-    // Exit conditions
-    if close >= trailing_sl_short or close <= trailing_tp_short
-        in_short := false
-        trailing_sl_short := na
-        trailing_tp_short := na
-        lowest_since_entry := na
+// Trailing stops removed - pure signal indicator
 
 // ════════════════════════ ANALYTICS ════════════════════════
 
@@ -454,34 +335,37 @@ p2 = plot(not na(current_orb_l) ? current_orb_l : na, display=display.none)
 fill_color = is_building ? color.new(color.blue, 93) : color.new(color.blue, 88)
 fill(p1, p2, fill_color, title="ORB Zone")
 
-// FIX #2: Draw ORB rectangle box ONLY ONCE when ready (use var to track if already drawn)
+// FIX #2: Draw ORB rectangle box based on M1 data, visible on all timeframes
 var box orb_box = na
-var int orb_start_bar = na
+var int orb_start_bar_index = na
 var bool orb_box_drawn = false
+
+// Calculate ORB start time (7:40 UTC) for current day
+orb_start_time = timestamp(year(time), month(time), dayofmonth(time), orb_start_h, orb_start_m, 0)
 
 // Reset box drawn flag on new day
 if ta.change(time("D")) != 0
     orb_box_drawn := false
+    orb_start_bar_index := na
 
-// Capture the bar when ORB becomes ready
-if orb_ready and not orb_ready[1]
-    orb_start_bar := bar_index
-    orb_box_drawn := false  // Allow new box to be drawn
+// Find the bar index that corresponds to ORB start time on current timeframe
+if time >= orb_start_time and na(orb_start_bar_index)
+    orb_start_bar_index := bar_index
 
 // Draw box ONLY ONCE when ORB first becomes ready
-if orb_ready and not orb_box_drawn and not na(orb_h) and not na(orb_l) and show_lines
+if orb_ready and not orb_box_drawn and not na(orb_h) and not na(orb_l) and show_lines and not na(orb_start_bar_index)
     if not na(orb_box)
         box.delete(orb_box)
     // Ultra clear rectangle with thick bright borders
     box_color = color.new(color.aqua, 85)  // Bright aqua fill
     border_color = color.new(color.aqua, 0)  // Solid bright aqua border
-    // Use extend=extend.right to automatically extend the box
-    orb_box := box.new(orb_start_bar, orb_h, bar_index + 20, orb_l,
+    // Use time-based positioning for consistency across all timeframes
+    orb_box := box.new(orb_start_bar_index, orb_h, bar_index + 20, orb_l,
                        border_color=border_color,
                        border_width=3,  // Thicker border
                        bgcolor=box_color,
                        extend=extend.right,
-                       text="ORB ZONE",
+                       text="ORB ZONE (M1 Data)",
                        text_size=size.normal,  // Larger text
                        text_color=color.new(color.aqua, 0))  // Bright text
     orb_box_drawn := true
@@ -498,62 +382,9 @@ plot(use_ema ? ema50 : na, "EMA50", color.new(color.purple, 30), 2)
 plotshape(buy_final, "BUY", shape.triangleup, location.belowbar, color.new(color.lime, 0), size=size.small, text="BUY")
 plotshape(sell_final, "SELL", shape.triangledown, location.abovebar, color.new(color.red, 0), size=size.small, text="SELL")
 
-// Exit signals
-plotshape(in_long[1] and not in_long, "EXIT LONG", shape.xcross, location.abovebar, color.new(color.orange, 0), size=size.tiny, text="EXIT")
-plotshape(in_short[1] and not in_short, "EXIT SHORT", shape.xcross, location.belowbar, color.new(color.orange, 0), size=size.tiny, text="EXIT")
+// All SL/TP visuals removed for clean signals-only display
 
-// Trailing stop lines
-plot(in_long and not na(trailing_sl_long) ? trailing_sl_long : na, "Trail SL Long", color.new(color.red, 0), 2, plot.style_cross)
-plot(in_long and not na(trailing_tp_long) ? trailing_tp_long : na, "Trail TP Long", color.new(color.lime, 0), 2, plot.style_cross)
-plot(in_short and not na(trailing_sl_short) ? trailing_sl_short : na, "Trail SL Short", color.new(color.red, 0), 2, plot.style_cross)
-plot(in_short and not na(trailing_tp_short) ? trailing_tp_short : na, "Trail TP Short", color.new(color.lime, 0), 2, plot.style_cross)
-
-// FIX #3: IMMEDIATE SL/TP LINES - Draw ONLY ONCE when ORB is ready
-var line long_sl_ln = na
-var line long_tp_ln = na
-var line short_sl_ln = na
-var line short_tp_ln = na
-var label long_sl_lbl = na
-var label long_tp_lbl = na
-var label short_sl_lbl = na
-var label short_tp_lbl = na
-var bool sltp_lines_drawn = false
-
-// Reset lines drawn flag on new day
-if ta.change(time("D")) != 0
-    sltp_lines_drawn := false
-
-// Draw lines ONLY ONCE when ORB first becomes ready
-if orb_ready and not orb_ready[1] and show_lines
-    sltp_lines_drawn := false  // Allow new lines to be drawn
-
-if orb_ready and not sltp_lines_drawn and show_lines
-    // Delete old lines
-    if not na(long_sl_ln)
-        line.delete(long_sl_ln)
-        line.delete(long_tp_ln)
-        line.delete(short_sl_ln)
-        line.delete(short_tp_ln)
-        label.delete(long_sl_lbl)
-        label.delete(long_tp_lbl)
-        label.delete(short_sl_lbl)
-        label.delete(short_tp_lbl)
-
-    // LONG scenario (green - bullish breakout above ORB high)
-    if not na(long_sl) and not na(long_tp)
-        long_sl_ln := line.new(bar_index, long_sl, bar_index + 100, long_sl, color=color.new(color.red, 0), width=2, style=line.style_solid, extend=extend.right)
-        long_tp_ln := line.new(bar_index, long_tp, bar_index + 100, long_tp, color=color.new(color.lime, 0), width=2, style=line.style_solid, extend=extend.right)
-        long_sl_lbl := label.new(bar_index, long_sl, "LONG SL: " + str.tostring(long_sl, "#.##"), style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
-        long_tp_lbl := label.new(bar_index, long_tp, "LONG TP: " + str.tostring(long_tp, "#.##"), style=label.style_label_left, color=color.new(color.lime, 0), textcolor=color.black, size=size.small)
-
-    // SHORT scenario (red - bearish breakout below ORB low)
-    if not na(short_sl) and not na(short_tp)
-        short_sl_ln := line.new(bar_index, short_sl, bar_index + 100, short_sl, color=color.new(color.red, 0), width=2, style=line.style_solid, extend=extend.right)
-        short_tp_ln := line.new(bar_index, short_tp, bar_index + 100, short_tp, color=color.new(color.lime, 0), width=2, style=line.style_solid, extend=extend.right)
-        short_sl_lbl := label.new(bar_index, short_sl, "SHORT SL: " + str.tostring(short_sl, "#.##"), style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
-        short_tp_lbl := label.new(bar_index, short_tp, "SHORT TP: " + str.tostring(short_tp, "#.##"), style=label.style_label_left, color=color.new(color.lime, 0), textcolor=color.black, size=size.small)
-
-    sltp_lines_drawn := true
+// SL/TP lines and labels removed for clean display
 
 // FIX #4: Key level labels - Track and delete old labels to prevent duplication
 var label[] key_level_labels = array.new_label(0)
@@ -630,9 +461,9 @@ if barstate.islast and show_dash
     table.cell(dash, 0, r, "PREV H/L", text_color=color.aqua, text_size=size.tiny)
     table.cell(dash, 1, r, str.tostring(yest_size, "#") + "p", text_color=daily_ok ? color.lime : color.red, text_size=size.tiny)
 
-    // ORB Status with real-time values
+    // ORB Status with real-time values (M1 Data)
     r += 1
-    table.cell(dash, 0, r, "ORB 7:40-8:00", text_color=color.aqua, text_size=size.tiny)
+    table.cell(dash, 0, r, "ORB M1 Data", text_color=color.aqua, text_size=size.tiny)
     orb_status = is_building ? "BUILDING" : (orb_ready ? "READY" : "WAIT")
     orb_clr = is_building ? color.orange : (orb_ready ? color.lime : color.gray)
     table.cell(dash, 1, r, orb_status, text_color=orb_clr, text_size=size.tiny)
@@ -677,43 +508,7 @@ if barstate.islast and show_dash
     table.cell(dash, 0, r, "OK Trade?", text_color=color.gray, text_size=size.tiny)
     table.cell(dash, 1, r, ok_trade ? "YES" : "NO", text_color=ok_trade ? color.lime : color.red, text_size=size.tiny)
 
-    // Position Status
-    r += 1
-    pos_txt = in_long ? "IN LONG" : (in_short ? "IN SHORT" : "NO POSITION")
-    pos_c = in_long ? color.lime : (in_short ? color.red : color.gray)
-    table.cell(dash, 0, r, "POSITION", text_color=color.white, bgcolor=color.new(color.blue, 50), text_size=size.small)
-    table.cell(dash, 1, r, pos_txt, text_color=pos_c, bgcolor=color.new(color.blue, 50), text_size=size.small)
-
-    // Show trailing stops if in position
-    if in_long and not na(trailing_sl_long)
-        r += 1
-        table.cell(dash, 0, r, "Trail SL", text_color=color.gray, text_size=size.tiny)
-        table.cell(dash, 1, r, str.tostring(trailing_sl_long, "#.##"), text_color=color.red, text_size=size.tiny)
-
-        r += 1
-        table.cell(dash, 0, r, "Trail TP", text_color=color.gray, text_size=size.tiny)
-        table.cell(dash, 1, r, str.tostring(trailing_tp_long, "#.##"), text_color=color.lime, text_size=size.tiny)
-
-        r += 1
-        table.cell(dash, 0, r, "Profit", text_color=color.gray, text_size=size.tiny)
-        pnl = close - buy_entry
-        pnl_c = pnl > 0 ? color.lime : color.red
-        table.cell(dash, 1, r, str.tostring(pnl, "#.#") + "p", text_color=pnl_c, text_size=size.tiny)
-
-    if in_short and not na(trailing_sl_short)
-        r += 1
-        table.cell(dash, 0, r, "Trail SL", text_color=color.gray, text_size=size.tiny)
-        table.cell(dash, 1, r, str.tostring(trailing_sl_short, "#.##"), text_color=color.red, text_size=size.tiny)
-
-        r += 1
-        table.cell(dash, 0, r, "Trail TP", text_color=color.gray, text_size=size.tiny)
-        table.cell(dash, 1, r, str.tostring(trailing_tp_short, "#.##"), text_color=color.lime, text_size=size.tiny)
-
-        r += 1
-        table.cell(dash, 0, r, "Profit", text_color=color.gray, text_size=size.tiny)
-        pnl = sell_entry - close
-        pnl_c = pnl > 0 ? color.lime : color.red
-        table.cell(dash, 1, r, str.tostring(pnl, "#.#") + "p", text_color=pnl_c, text_size=size.tiny)
+    // Position tracking removed - signals-only indicator
 
     // Signal
     r += 1
@@ -722,39 +517,7 @@ if barstate.islast and show_dash
     sig_c = buy_final ? color.lime : (sell_final ? color.red : color.gray)
     table.cell(dash, 1, r, sig_txt, text_color=sig_c, bgcolor=color.new(color.green, 50), text_size=size.small)
 
-    // IMMEDIATE Trade Levels - Show as soon as ORB is ready
-    if orb_ready and not na(long_entry) and not na(short_entry)
-        r += 1
-        table.cell(dash, 0, r, "LONG LEVELS", text_color=color.lime, bgcolor=color.new(color.green, 70), text_size=size.tiny)
-        table.cell(dash, 1, r, "", text_color=color.white)
-
-        r += 1
-        table.cell(dash, 0, r, "Entry", text_color=color.gray, text_size=size.tiny)
-        table.cell(dash, 1, r, str.tostring(long_entry, "#.##"), text_color=color.white, text_size=size.tiny)
-
-        r += 1
-        table.cell(dash, 0, r, "SL", text_color=color.gray, text_size=size.tiny)
-        table.cell(dash, 1, r, str.tostring(long_sl, "#.##"), text_color=color.red, text_size=size.tiny)
-
-        r += 1
-        table.cell(dash, 0, r, "TP", text_color=color.gray, text_size=size.tiny)
-        table.cell(dash, 1, r, str.tostring(long_tp, "#.##"), text_color=color.lime, text_size=size.tiny)
-
-        r += 1
-        table.cell(dash, 0, r, "SHORT LEVELS", text_color=color.red, bgcolor=color.new(color.red, 70), text_size=size.tiny)
-        table.cell(dash, 1, r, "", text_color=color.white)
-
-        r += 1
-        table.cell(dash, 0, r, "Entry", text_color=color.gray, text_size=size.tiny)
-        table.cell(dash, 1, r, str.tostring(short_entry, "#.##"), text_color=color.white, text_size=size.tiny)
-
-        r += 1
-        table.cell(dash, 0, r, "SL", text_color=color.gray, text_size=size.tiny)
-        table.cell(dash, 1, r, str.tostring(short_sl, "#.##"), text_color=color.red, text_size=size.tiny)
-
-        r += 1
-        table.cell(dash, 0, r, "TP", text_color=color.gray, text_size=size.tiny)
-        table.cell(dash, 1, r, str.tostring(short_tp, "#.##"), text_color=color.lime, text_size=size.tiny)
+    // All SL/TP levels removed - clean signals-only dashboard
 
 // ════════════════════════ ALERTS ════════════════════════
 
