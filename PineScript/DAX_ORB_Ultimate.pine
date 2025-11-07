@@ -335,7 +335,7 @@ p2 = plot(not na(current_orb_l) ? current_orb_l : na, display=display.none)
 fill_color = is_building ? color.new(color.blue, 93) : color.new(color.blue, 88)
 fill(p1, p2, fill_color, title="ORB Zone")
 
-// FIX #2: Draw ORB rectangle box based on M1 data, visible on all timeframes
+// FIX #2: Simple ORB box - let Pine Script handle the extension naturally
 var box orb_box = na
 var bool orb_box_drawn = false
 
@@ -343,28 +343,18 @@ var bool orb_box_drawn = false
 if ta.change(time("D")) != 0
     orb_box_drawn := false
 
-// Draw box ONLY ONCE when ORB first becomes ready
+// Draw box when ORB becomes ready, use simple approach for all timeframes
 if orb_ready and not orb_box_drawn and not na(orb_h) and not na(orb_l) and show_lines
     if not na(orb_box)
         box.delete(orb_box)
-
-    // Calculate ORB start time for current day
-    orb_start_time = timestamp(year(time), month(time), dayofmonth(time), orb_start_h, orb_start_m, 0)
-
-    // Find the bar that contains or comes after ORB start time
-    start_bar = bar_index
-    for i = 0 to 50  // Look back up to 50 bars to find the right starting point
-        bar_time = time[i]
-        if bar_time <= orb_start_time and (i == 0 or time[i-1] > orb_start_time)
-            start_bar := bar_index - i
-            break
 
     // Ultra clear rectangle with thick bright borders
     box_color = color.new(color.aqua, 85)  // Bright aqua fill
     border_color = color.new(color.aqua, 0)  // Solid bright aqua border
 
-    // Create box from ORB start time to current bar with right extension
-    orb_box := box.new(start_bar, orb_h, bar_index, orb_l,
+    // Simple approach: create box at current bar with extend.right
+    // This works reliably across all timeframes
+    orb_box := box.new(bar_index - 5, orb_h, bar_index + 5, orb_l,
                        border_color=border_color,
                        border_width=3,  // Thicker border
                        bgcolor=box_color,
@@ -373,6 +363,10 @@ if orb_ready and not orb_box_drawn and not na(orb_h) and not na(orb_l) and show_
                        text_size=size.normal,  // Larger text
                        text_color=color.new(color.aqua, 0))  // Bright text
     orb_box_drawn := true
+
+// Keep the box extending to current bar on every update
+if orb_box_drawn and not na(orb_box) and show_lines
+    box.set_right(orb_box, bar_index)
 
 // FIX #7: Let Pine Script handle box extension automatically
 // No manual updates needed - extend=extend.right handles it
