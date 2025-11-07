@@ -485,8 +485,9 @@ if orb_ready and not orb_box_drawn and not na(orb_h) and not na(orb_l) and show_
                        text_color=color.new(color.aqua, 0))  // Bright text
     orb_box_drawn := true
 
-// FIX #6: Update box to extend until market close (EOD), not beyond
-if orb_box_drawn and not na(orb_box) and show_lines and is_market_open()
+// FIX #6: Update box to extend through the day
+// Update on every bar after it's drawn (will extend to current bar)
+if orb_box_drawn and not na(orb_box) and show_lines
     box.set_right(orb_box, bar_index)
 
 // EMAs
