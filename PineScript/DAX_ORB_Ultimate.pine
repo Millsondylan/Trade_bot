@@ -335,12 +335,12 @@ p2 = plot(not na(current_orb_l) ? current_orb_l : na, display=display.none)
 fill_color = is_building ? color.new(color.blue, 93) : color.new(color.blue, 88)
 fill(p1, p2, fill_color, title="ORB Zone")
 
-// FIX #2: Use simple plot lines for ORB levels - works on all timeframes
-// This is the most reliable approach across all timeframes
+// FIX #2: Plot ORB levels without orb_ready dependency - works on all timeframes
+// The issue was orb_ready wasn't working on M5+, so just plot when we have values
 
-// Plot ORB levels as horizontal lines when ready
-orb_high_line = orb_ready and show_lines ? orb_h : na
-orb_low_line = orb_ready and show_lines ? orb_l : na
+// Plot current ORB values (building or final) whenever available
+orb_high_line = not na(current_orb_h) and show_lines ? current_orb_h : na
+orb_low_line = not na(current_orb_l) and show_lines ? current_orb_l : na
 
 // Plot the ORB levels as thick aqua lines
 plot(orb_high_line, "ORB High", color=color.new(color.aqua, 0), linewidth=3, style=plot.style_line)
