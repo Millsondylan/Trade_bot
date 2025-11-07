@@ -335,33 +335,37 @@ p2 = plot(not na(current_orb_l) ? current_orb_l : na, display=display.none)
 fill_color = is_building ? color.new(color.blue, 93) : color.new(color.blue, 88)
 fill(p1, p2, fill_color, title="ORB Zone")
 
-// FIX #2: ORB box with far future right edge - guaranteed extension
+// FIX #2: ORB box with manual extension on every bar - guaranteed to work
 var box orb_box = na
-var bool orb_box_drawn = false
+var int orb_box_start = na
 
-// Reset box drawn flag on new day
+// Reset on new day
 if ta.change(time("D")) != 0
-    orb_box_drawn := false
-
-// Draw box when ORB becomes ready, use far future bar for reliable extension
-if orb_ready and not orb_box_drawn and not na(orb_h) and not na(orb_l) and show_lines
     if not na(orb_box)
         box.delete(orb_box)
+        orb_box := na
+    orb_box_start := na
+
+// Create box when ORB first becomes ready
+if orb_ready and na(orb_box) and not na(orb_h) and not na(orb_l) and show_lines
+    orb_box_start := bar_index
 
     // Ultra clear rectangle with thick bright borders
     box_color = color.new(color.aqua, 85)  // Bright aqua fill
     border_color = color.new(color.aqua, 0)  // Solid bright aqua border
 
-    // Create box with far future right edge - this guarantees extension
-    // Use bar_index + 500 to extend well into the future
-    orb_box := box.new(bar_index - 10, orb_h, bar_index + 500, orb_l,
+    // Create initial box
+    orb_box := box.new(orb_box_start, orb_h, orb_box_start + 1, orb_l,
                        border_color=border_color,
                        border_width=3,  // Thicker border
                        bgcolor=box_color,
                        text="ORB ZONE (M1 Data)",
                        text_size=size.normal,  // Larger text
                        text_color=color.new(color.aqua, 0))  // Bright text
-    orb_box_drawn := true
+
+// Extend box manually on every bar after creation
+if not na(orb_box) and orb_ready and show_lines
+    box.set_right(orb_box, bar_index + 50)
 
 // FIX #7: Let Pine Script handle box extension automatically
 // No manual updates needed - extend=extend.right handles it
