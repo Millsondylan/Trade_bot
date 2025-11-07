@@ -1,0 +1,745 @@
+//@version=5
+indicator("DAX ORB Ultimate - ALGO Suite", overlay=true, max_labels_count=200, max_lines_count=100)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DAX OPENING RANGE BREAKOUT - ULTIMATE EDITION
+// Real-time ORB building | Multi-timeframe support | Key levels with bias
+// Works on ANY timeframe - uses M1 data for ORB construction
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ════════════════════════ INPUTS ════════════════════════
+
+orb_start_h = input.int(7, "Start Hour (UTC)", minval=0, maxval=23, group="ORB Settings")
+orb_start_m = input.int(40, "Start Minute", minval=0, maxval=59, group="ORB Settings")
+orb_end_h = input.int(8, "End Hour (UTC)", minval=0, maxval=23, group="ORB Settings")
+orb_end_m = input.int(0, "End Minute", minval=0, maxval=59, group="ORB Settings")
+exclude_wicks = input.bool(true, "Exclude Wicks", group="ORB Settings")
+close_hour = input.int(16, "Market Close Hour", minval=0, maxval=23, group="ORB Settings")
+
+use_tf = input.bool(true, "1. Trend Following", group="Strategies")
+use_mr = input.bool(true, "2. Mean Reversion", group="Strategies")
+use_sa = input.bool(true, "3. Statistical Arb", group="Strategies")
+use_mm = input.bool(true, "4. Market Making", group="Strategies")
+use_ba = input.bool(true, "5. Basis Arb", group="Strategies")
+
+use_ema = input.bool(true, "EMA Filter", group="Technical Filters")
+use_rsi = input.bool(true, "RSI Filter", group="Technical Filters")
+use_macd = input.bool(true, "MACD Filter", group="Technical Filters")
+use_vol = input.bool(true, "Volume Filter", group="Technical Filters")
+use_bb = input.bool(true, "Bollinger Filter", group="Technical Filters")
+
+use_fixed = input.bool(false, "Fixed SL/TP", group="Risk Management")
+fixed_sl = input.float(50, "Fixed SL Points", minval=10, group="Risk Management")
+fixed_tp = input.float(150, "Fixed TP Points", minval=10, group="Risk Management")
+atr_sl = input.float(2.0, "ATR SL Mult", minval=0.5, group="Risk Management")
+atr_tp = input.float(3.0, "ATR TP Mult", minval=0.5, group="Risk Management")
+min_rr = input.float(2.0, "Min R:R", minval=1.0, group="Risk Management")
+
+show_dash = input.bool(true, "Show Dashboard", group="Display")
+show_lines = input.bool(true, "Show Lines", group="Display")
+show_levels = input.bool(true, "Show Key Levels", group="Display")
+
+// ════════════════════════ FUNCTIONS ════════════════════════
+
+is_orb_period(_h, _m) =>
+    start = orb_start_h * 60 + orb_start_m
+    end = orb_end_h * 60 + orb_end_m
+    curr = _h * 60 + _m
+    curr >= start and curr < end
+
+orb_ended(_h, _m) =>
+    end = orb_end_h * 60 + orb_end_m
+    curr = _h * 60 + _m
+    curr == end
+
+is_market_open() =>
+    h = hour(time)
+    h >= orb_start_h and h <= close_hour
+
+// ════════════════════════ DATA GATHERING (M1) ════════════════════════
+
+// Get M1 data for ORB construction (works on ANY chart timeframe)
+[m1_time, m1_open, m1_high, m1_low, m1_close] = request.security(syminfo.tickerid, "1", [time, open, high, low, close], barmerge.gaps_off, barmerge.lookahead_off)
+
+// Daily data
+d_high = request.security(syminfo.tickerid, "D", high, barmerge.gaps_off, barmerge.lookahead_on)
+d_low = request.security(syminfo.tickerid, "D", low, barmerge.gaps_off, barmerge.lookahead_on)
+d_open = request.security(syminfo.tickerid, "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+
+// Current day high/low (intraday)
+var float today_high = na
+var float today_low = na
+var float prev_day_high = na
+var float prev_day_low = na
+var float yest_size = 0
+
+if ta.change(time("D")) != 0
+    prev_day_high := d_high[1]
+    prev_day_low := d_low[1]
+    yest_size := d_high[1] - d_low[1]
+    today_high := high
+    today_low := low
+else
+    today_high := math.max(na(today_high) ? high : today_high, high)
+    today_low := math.min(na(today_low) ? low : today_low, low)
+
+// ════════════════════════ ORB CONSTRUCTION (REAL-TIME) ════════════════════════
+
+var float orb_h = na
+var float orb_l = na
+var bool orb_ready = false
+var float orb_building_h = na
+var float orb_building_l = na
+var bool is_building = false
+
+// Get M1 bar time components
+m1_hour = hour(m1_time)
+m1_minute = minute(m1_time)
+
+// Reset daily
+if ta.change(time("D")) != 0
+    orb_h := na
+    orb_l := na
+    orb_ready := false
+    orb_building_h := na
+    orb_building_l := na
+    is_building := false
+
+// Build ORB using M1 data
+if is_orb_period(m1_hour, m1_minute) and not orb_ready
+    is_building := true
+    val_h = exclude_wicks ? m1_close : m1_high
+    val_l = exclude_wicks ? m1_close : m1_low
+
+    if na(orb_building_h)
+        orb_building_h := val_h
+        orb_building_l := val_l
+    else
+        orb_building_h := math.max(orb_building_h, val_h)
+        orb_building_l := math.min(orb_building_l, val_l)
+
+// FIX #1: Set is_building to false when NOT in ORB period anymore
+if not is_orb_period(m1_hour, m1_minute) and is_building and not orb_ready
+    is_building := false
+
+// Finalize ORB when period ends
+if orb_ended(m1_hour, m1_minute) and not orb_ready
+    orb_h := orb_building_h
+    orb_l := orb_building_l
+    orb_ready := true
+    is_building := false
+
+// Display building values in real-time
+current_orb_h = is_building ? orb_building_h : orb_h
+current_orb_l = is_building ? orb_building_l : orb_l
+
+// ════════════════════════ INDICATORS ════════════════════════
+
+ema9 = ta.ema(close, 9)
+ema21 = ta.ema(close, 21)
+ema50 = ta.ema(close, 50)
+rsi = ta.rsi(close, 14)
+[macd, sig, _] = ta.macd(close, 12, 26, 9)
+[bb_mid, bb_up, bb_low] = ta.bb(close, 20, 2)
+atr = ta.atr(14)
+vol_ma = ta.sma(volume, 20)
+
+// ════════════════════════ STRATEGY SIGNALS ════════════════════════
+
+// 1. Trend Following
+tf_short = ta.sma(close, 10)
+tf_long = ta.sma(close, 30)
+tf_bull = tf_short > tf_long
+tf_bear = tf_short < tf_long
+
+// 2. Mean Reversion
+mr_mean = ta.sma(close, 20)
+mr_dev = (close - mr_mean) / mr_mean * 100
+mr_bull = mr_dev <= -0.5
+mr_bear = mr_dev >= 0.5
+
+// 3. Statistical Arb
+sa_mean = ta.sma(close, 120)
+sa_std = ta.stdev(close, 120)
+sa_z = sa_std > 0 ? (close - sa_mean) / sa_std : 0
+var string sa_st = "flat"
+if sa_st == "flat"
+    if sa_z <= -2.0
+        sa_st := "long"
+    else if sa_z >= 2.0
+        sa_st := "short"
+else if math.abs(sa_z) <= 0.5 or math.abs(sa_z) >= 4.0
+    sa_st := "flat"
+sa_bull = sa_st == "long"
+sa_bear = sa_st == "short"
+
+// 4. Market Making
+mm_spread = (high - low) / close * 100
+mm_mid = (high + low) / 2
+mm_bull = close < mm_mid and mm_spread >= 0.5
+mm_bear = close > mm_mid and mm_spread >= 0.5
+
+// 5. Basis Arb
+ba_fair = ta.sma(close, 50)
+ba_bps = ba_fair != 0 ? (close - ba_fair) / ba_fair * 10000 : 0
+ba_bull = ba_bps <= -8.0
+ba_bear = ba_bps >= 8.0
+
+// Vote counting
+bull_v = 0
+bear_v = 0
+if use_tf
+    bull_v := bull_v + (tf_bull ? 1 : 0)
+    bear_v := bear_v + (tf_bear ? 1 : 0)
+if use_mr
+    bull_v := bull_v + (mr_bull ? 1 : 0)
+    bear_v := bear_v + (mr_bear ? 1 : 0)
+if use_sa
+    bull_v := bull_v + (sa_bull ? 1 : 0)
+    bear_v := bear_v + (sa_bear ? 1 : 0)
+if use_mm
+    bull_v := bull_v + (mm_bull ? 1 : 0)
+    bear_v := bear_v + (mm_bear ? 1 : 0)
+if use_ba
+    bull_v := bull_v + (ba_bull ? 1 : 0)
+    bear_v := bear_v + (ba_bear ? 1 : 0)
+
+// Technical filters - Simplified scoring system
+ema_ok_b = not use_ema or (ema9 > ema21 and close > ema50)
+ema_ok_s = not use_ema or (ema9 < ema21 and close < ema50)
+rsi_ok_b = not use_rsi or (rsi > 40 and rsi < 80)  // More lenient
+rsi_ok_s = not use_rsi or (rsi < 60 and rsi > 20)  // More lenient
+macd_ok_b = not use_macd or macd > sig
+macd_ok_s = not use_macd or macd < sig
+vol_ok = not use_vol or volume > vol_ma * 1.2  // More lenient
+bb_ok_b = not use_bb or close > bb_mid
+bb_ok_s = not use_bb or close < bb_mid
+
+// Technical score (need at least 2 out of 5 filters)
+tech_score_b = (ema_ok_b ? 1 : 0) + (rsi_ok_b ? 1 : 0) + (macd_ok_b ? 1 : 0) + (bb_ok_b ? 1 : 0) + (vol_ok ? 1 : 0)
+tech_score_s = (ema_ok_s ? 1 : 0) + (rsi_ok_s ? 1 : 0) + (macd_ok_s ? 1 : 0) + (bb_ok_s ? 1 : 0) + (vol_ok ? 1 : 0)
+tech_bull = tech_score_b >= 2
+tech_bear = tech_score_s >= 2
+
+// Breakout - SIMPLIFIED (just need close above/below ORB)
+brk_bull = orb_ready and close > current_orb_h
+brk_bear = orb_ready and close < current_orb_l
+
+// Consensus - At least 2 strategies agree (not majority)
+total_st = (use_tf ? 1 : 0) + (use_mr ? 1 : 0) + (use_sa ? 1 : 0) + (use_mm ? 1 : 0) + (use_ba ? 1 : 0)
+consensus_b = bull_v >= 2
+consensus_s = bear_v >= 2
+
+// Final signals - MUCH MORE LENIENT
+daily_ok = yest_size >= 50  // Reduced from 100
+buy = brk_bull and consensus_b and tech_bull and is_market_open()
+sell = brk_bear and consensus_s and tech_bear and is_market_open()
+
+// ════════════════════════ SL/TP ════════════════════════
+
+// IMMEDIATE SL/TP LEVELS - Calculated as soon as ORB is ready (at 8:00)
+var float long_entry = na
+var float long_sl = na
+var float long_tp = na
+var float short_entry = na
+var float short_sl = na
+var float short_tp = na
+
+// Calculate potential levels immediately when ORB is ready
+if orb_ready and not na(orb_h) and not na(orb_l)
+    // Long scenario: Entry at ORB high breakout
+    long_entry := orb_h
+    long_sl := use_fixed ? long_entry - fixed_sl : long_entry - atr * atr_sl
+    long_tp := use_fixed ? long_entry + fixed_tp : long_entry + atr * atr_tp
+
+    // Short scenario: Entry at ORB low breakout
+    short_entry := orb_l
+    short_sl := use_fixed ? short_entry + fixed_sl : short_entry + atr * atr_sl
+    short_tp := use_fixed ? short_entry - fixed_tp : short_entry - atr * atr_tp
+
+// Signal-based entry tracking (for dashboard and alerts)
+var float buy_entry = na
+var float buy_sl = na
+var float buy_tp = na
+var float sell_entry = na
+var float sell_sl = na
+var float sell_tp = na
+
+if buy
+    buy_entry := close
+    buy_sl := use_fixed ? buy_entry - fixed_sl : buy_entry - atr * atr_sl
+    buy_tp := use_fixed ? buy_entry + fixed_tp : buy_entry + atr * atr_tp
+
+if sell
+    sell_entry := close
+    sell_sl := use_fixed ? sell_entry + fixed_sl : sell_entry + atr * atr_sl
+    sell_tp := use_fixed ? sell_entry - fixed_tp : sell_entry - atr * atr_tp
+
+buy_rr = not na(buy_entry) ? (buy_tp - buy_entry) / (buy_entry - buy_sl) : 0
+sell_rr = not na(sell_entry) ? (sell_entry - sell_tp) / (sell_sl - sell_entry) : 0
+
+buy_final = buy and buy_rr >= min_rr
+sell_final = sell and sell_rr >= min_rr
+
+// ════════════════════════ TRAILING STOPS ════════════════════════
+
+// Trailing Stop Loss and Take Profit Management
+var float trailing_sl_long = na
+var float trailing_sl_short = na
+var float trailing_tp_long = na
+var float trailing_tp_short = na
+var bool in_long = false
+var bool in_short = false
+var float highest_since_entry = na
+var float lowest_since_entry = na
+
+// Enter long position
+if buy_final and not in_long
+    in_long := true
+    in_short := false
+    trailing_sl_long := buy_sl
+    trailing_tp_long := buy_tp
+    highest_since_entry := close
+
+// Enter short position
+if sell_final and not in_short
+    in_short := true
+    in_long := false
+    trailing_sl_short := sell_sl
+    trailing_tp_short := sell_tp
+    lowest_since_entry := close
+
+// Update trailing stops for LONG
+if in_long
+    // Track highest price since entry
+    highest_since_entry := math.max(highest_since_entry, high)
+
+    // Trail stop loss (moves up as price moves up)
+    // When price moves 1 ATR in profit, move SL to breakeven
+    // When price moves 2 ATR in profit, move SL to +1 ATR
+    profit_atr = (highest_since_entry - buy_entry) / atr
+    if profit_atr >= 2.0
+        trailing_sl_long := math.max(trailing_sl_long, buy_entry + atr * 1.0)
+    else if profit_atr >= 1.0
+        trailing_sl_long := math.max(trailing_sl_long, buy_entry)
+
+    // Smart trailing TP - extends TP if strong momentum
+    if highest_since_entry > trailing_tp_long * 0.9 and rsi > 60  // Within 10% of TP and strong momentum
+        trailing_tp_long := trailing_tp_long + atr * 0.5  // Extend TP
+
+    // Exit conditions
+    if close <= trailing_sl_long or close >= trailing_tp_long
+        in_long := false
+        trailing_sl_long := na
+        trailing_tp_long := na
+        highest_since_entry := na
+
+// Update trailing stops for SHORT
+if in_short
+    // Track lowest price since entry
+    lowest_since_entry := math.min(lowest_since_entry, low)
+
+    // Trail stop loss (moves down as price moves down)
+    profit_atr = (sell_entry - lowest_since_entry) / atr
+    if profit_atr >= 2.0
+        trailing_sl_short := math.min(trailing_sl_short, sell_entry - atr * 1.0)
+    else if profit_atr >= 1.0
+        trailing_sl_short := math.min(trailing_sl_short, sell_entry)
+
+    // Smart trailing TP - extends TP if strong momentum
+    if lowest_since_entry < trailing_tp_short * 1.1 and rsi < 40  // Within 10% of TP and strong momentum
+        trailing_tp_short := trailing_tp_short - atr * 0.5  // Extend TP
+
+    // Exit conditions
+    if close >= trailing_sl_short or close <= trailing_tp_short
+        in_short := false
+        trailing_sl_short := na
+        trailing_tp_short := na
+        lowest_since_entry := na
+
+// ════════════════════════ ANALYTICS ════════════════════════
+
+prob_strat = total_st > 0 ? math.max(bull_v, bear_v) / total_st * 100 : 50
+prob_tech = (tech_bull or tech_bear) ? 75 : 35
+prob_vol = vol_ok ? 85 : 50
+prob_daily = daily_ok ? 85 : 30
+prob_orb = orb_ready ? 80 : 20
+probability = prob_strat * 0.3 + prob_tech * 0.25 + prob_vol * 0.15 + prob_daily * 0.15 + prob_orb * 0.15
+
+dir_score = 0
+dir_score := dir_score + (ema9 > ema21 ? 2 : -2)
+dir_score := dir_score + (tf_bull ? 2 : -2)
+dir_score := dir_score + (macd > sig ? 1 : -1)
+dir_score := dir_score + (rsi > 50 ? 1 : -1)
+direction = dir_score >= 2 ? "STRONG BULL" : (dir_score > 0 ? "BULL" : (dir_score <= -2 ? "STRONG BEAR" : (dir_score < 0 ? "BEAR" : "NEUTRAL")))
+
+clean_trend = math.abs(ema9 - ema21) / close * 100
+clean_noise = atr / close * 100
+clean_struct = close > ema9 and close > ema21 and close > ema50 or close < ema9 and close < ema21 and close < ema50
+clean_score = (clean_trend > 0.5 ? 30 : 10) + (clean_noise < 1.5 ? 30 : 10) + (clean_struct ? 40 : 10)
+quality = clean_score >= 70 ? "CLEAN" : (clean_score >= 50 ? "GOOD" : (clean_score >= 30 ? "OK" : "CHOPPY"))
+
+mom = ta.mom(close, 10)
+mom_str = math.abs(mom) / close * 100
+vol_rat = atr / ta.sma(atr, 20)
+movement = buy_final or sell_final ? (mom_str > 0.8 and vol_rat > 1.3 ? "STRONG" : (mom_str > 0.5 ? "MODERATE" : "GRADUAL")) : "WAIT"
+
+ok_score = (daily_ok ? 25 : 0) + (orb_ready ? 25 : 0) + (is_market_open() ? 20 : 0) + (clean_score >= 50 ? 20 : 5) + (probability >= 60 ? 10 : 0)
+ok_trade = ok_score >= 65
+
+// ════════════════════════ KEY LEVELS WITH BIAS ════════════════════════
+
+// Calculate potential reaction levels with directional bias
+var float[] key_levels = array.new_float(0)
+var string[] key_bias = array.new_string(0)
+
+if barstate.islast and show_levels
+    array.clear(key_levels)
+    array.clear(key_bias)
+
+    // Add levels with bias
+    if not na(current_orb_h)
+        array.push(key_levels, current_orb_h)
+        array.push(key_bias, consensus_b ? "BULL BREAK" : "RESISTANCE")
+
+    if not na(current_orb_l)
+        array.push(key_levels, current_orb_l)
+        array.push(key_bias, consensus_s ? "BEAR BREAK" : "SUPPORT")
+
+    if not na(prev_day_high)
+        array.push(key_levels, prev_day_high)
+        bias_pdh = close > prev_day_high ? "BULLISH" : (close < prev_day_high and close > prev_day_high * 0.995 ? "WATCH" : "RESIST")
+        array.push(key_bias, bias_pdh)
+
+    if not na(prev_day_low)
+        array.push(key_levels, prev_day_low)
+        bias_pdl = close < prev_day_low ? "BEARISH" : (close > prev_day_low and close < prev_day_low * 1.005 ? "WATCH" : "SUPPORT")
+        array.push(key_bias, bias_pdl)
+
+    if not na(today_high)
+        array.push(key_levels, today_high)
+        array.push(key_bias, "TODAY HIGH")
+
+    if not na(today_low)
+        array.push(key_levels, today_low)
+        array.push(key_bias, "TODAY LOW")
+
+    // Add EMA50 as dynamic level
+    array.push(key_levels, ema50)
+    ema_bias = close > ema50 ? "BULL SUPPORT" : "BEAR RESIST"
+    array.push(key_bias, ema_bias)
+
+// ════════════════════════ VISUALS ════════════════════════
+
+// Previous day lines
+plot(show_lines ? prev_day_high : na, "Prev Day H", color.new(color.yellow, 0), 1, plot.style_line)
+plot(show_lines ? prev_day_low : na, "Prev Day L", color.new(color.orange, 0), 1, plot.style_line)
+
+// Current day high/low
+plot(show_lines ? today_high : na, "Today High", color.new(color.lime, 40), 2, plot.style_circles)
+plot(show_lines ? today_low : na, "Today Low", color.new(color.red, 40), 2, plot.style_circles)
+
+// ORB lines (show building values in real-time with separate plots)
+// Building phase - circles (orange during building)
+plot(show_lines and is_building and not na(current_orb_h) ? current_orb_h : na, "ORB High Building", color.new(color.orange, 30), 3, plot.style_circles)
+plot(show_lines and is_building and not na(current_orb_l) ? current_orb_l : na, "ORB Low Building", color.new(color.orange, 30), 3, plot.style_circles)
+
+// Ready phase - ULTRA BRIGHT solid lines
+plot(show_lines and not is_building and not na(current_orb_h) ? current_orb_h : na, "ORB High Ready", color.new(color.aqua, 0), 4, plot.style_line)
+plot(show_lines and not is_building and not na(current_orb_l) ? current_orb_l : na, "ORB Low Ready", color.new(color.aqua, 0), 4, plot.style_line)
+
+// ORB zone fill
+p1 = plot(not na(current_orb_h) ? current_orb_h : na, display=display.none)
+p2 = plot(not na(current_orb_l) ? current_orb_l : na, display=display.none)
+fill_color = is_building ? color.new(color.blue, 93) : color.new(color.blue, 88)
+fill(p1, p2, fill_color, title="ORB Zone")
+
+// FIX #2: Draw ORB rectangle box ONLY ONCE when ready (use var to track if already drawn)
+var box orb_box = na
+var int orb_start_bar = na
+var bool orb_box_drawn = false
+
+// Reset box drawn flag on new day
+if ta.change(time("D")) != 0
+    orb_box_drawn := false
+
+// Capture the bar when ORB becomes ready
+if orb_ready and not orb_ready[1]
+    orb_start_bar := bar_index
+    orb_box_drawn := false  // Allow new box to be drawn
+
+// Draw box ONLY ONCE when ORB first becomes ready
+if orb_ready and not orb_box_drawn and not na(orb_h) and not na(orb_l) and show_lines
+    if not na(orb_box)
+        box.delete(orb_box)
+    // Ultra clear rectangle with thick bright borders
+    box_color = color.new(color.aqua, 85)  // Bright aqua fill
+    border_color = color.new(color.aqua, 0)  // Solid bright aqua border
+    orb_box := box.new(orb_start_bar, orb_h, bar_index + 50, orb_l,
+                       border_color=border_color,
+                       border_width=3,  // Thicker border
+                       bgcolor=box_color,
+                       extend=extend.right,
+                       text="ORB ZONE",
+                       text_size=size.normal,  // Larger text
+                       text_color=color.new(color.aqua, 0))  // Bright text
+    orb_box_drawn := true
+
+// Update box right edge on each bar (without creating new box)
+if orb_box_drawn and not na(orb_box) and show_lines
+    box.set_right(orb_box, bar_index)
+
+// EMAs
+plot(use_ema ? ema9 : na, "EMA9", color.new(color.blue, 20), 1)
+plot(use_ema ? ema21 : na, "EMA21", color.new(color.orange, 20), 1)
+plot(use_ema ? ema50 : na, "EMA50", color.new(color.purple, 30), 2)
+
+// Signals
+plotshape(buy_final, "BUY", shape.triangleup, location.belowbar, color.new(color.lime, 0), size=size.small, text="BUY")
+plotshape(sell_final, "SELL", shape.triangledown, location.abovebar, color.new(color.red, 0), size=size.small, text="SELL")
+
+// Exit signals
+plotshape(in_long[1] and not in_long, "EXIT LONG", shape.xcross, location.abovebar, color.new(color.orange, 0), size=size.tiny, text="EXIT")
+plotshape(in_short[1] and not in_short, "EXIT SHORT", shape.xcross, location.belowbar, color.new(color.orange, 0), size=size.tiny, text="EXIT")
+
+// Trailing stop lines
+plot(in_long and not na(trailing_sl_long) ? trailing_sl_long : na, "Trail SL Long", color.new(color.red, 0), 2, plot.style_cross)
+plot(in_long and not na(trailing_tp_long) ? trailing_tp_long : na, "Trail TP Long", color.new(color.lime, 0), 2, plot.style_cross)
+plot(in_short and not na(trailing_sl_short) ? trailing_sl_short : na, "Trail SL Short", color.new(color.red, 0), 2, plot.style_cross)
+plot(in_short and not na(trailing_tp_short) ? trailing_tp_short : na, "Trail TP Short", color.new(color.lime, 0), 2, plot.style_cross)
+
+// FIX #3: IMMEDIATE SL/TP LINES - Draw ONLY ONCE when ORB is ready
+var line long_sl_ln = na
+var line long_tp_ln = na
+var line short_sl_ln = na
+var line short_tp_ln = na
+var label long_sl_lbl = na
+var label long_tp_lbl = na
+var label short_sl_lbl = na
+var label short_tp_lbl = na
+var bool sltp_lines_drawn = false
+
+// Reset lines drawn flag on new day
+if ta.change(time("D")) != 0
+    sltp_lines_drawn := false
+
+// Draw lines ONLY ONCE when ORB first becomes ready
+if orb_ready and not orb_ready[1] and show_lines
+    sltp_lines_drawn := false  // Allow new lines to be drawn
+
+if orb_ready and not sltp_lines_drawn and show_lines
+    // Delete old lines
+    if not na(long_sl_ln)
+        line.delete(long_sl_ln)
+        line.delete(long_tp_ln)
+        line.delete(short_sl_ln)
+        line.delete(short_tp_ln)
+        label.delete(long_sl_lbl)
+        label.delete(long_tp_lbl)
+        label.delete(short_sl_lbl)
+        label.delete(short_tp_lbl)
+
+    // LONG scenario (green - bullish breakout above ORB high)
+    if not na(long_sl) and not na(long_tp)
+        long_sl_ln := line.new(bar_index, long_sl, bar_index + 100, long_sl, color=color.new(color.red, 0), width=2, style=line.style_solid, extend=extend.right)
+        long_tp_ln := line.new(bar_index, long_tp, bar_index + 100, long_tp, color=color.new(color.lime, 0), width=2, style=line.style_solid, extend=extend.right)
+        long_sl_lbl := label.new(bar_index, long_sl, "LONG SL: " + str.tostring(long_sl, "#.##"), style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+        long_tp_lbl := label.new(bar_index, long_tp, "LONG TP: " + str.tostring(long_tp, "#.##"), style=label.style_label_left, color=color.new(color.lime, 0), textcolor=color.black, size=size.small)
+
+    // SHORT scenario (red - bearish breakout below ORB low)
+    if not na(short_sl) and not na(short_tp)
+        short_sl_ln := line.new(bar_index, short_sl, bar_index + 100, short_sl, color=color.new(color.red, 0), width=2, style=line.style_solid, extend=extend.right)
+        short_tp_ln := line.new(bar_index, short_tp, bar_index + 100, short_tp, color=color.new(color.lime, 0), width=2, style=line.style_solid, extend=extend.right)
+        short_sl_lbl := label.new(bar_index, short_sl, "SHORT SL: " + str.tostring(short_sl, "#.##"), style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+        short_tp_lbl := label.new(bar_index, short_tp, "SHORT TP: " + str.tostring(short_tp, "#.##"), style=label.style_label_left, color=color.new(color.lime, 0), textcolor=color.black, size=size.small)
+
+    sltp_lines_drawn := true
+
+// Key level labels
+if barstate.islast and show_levels and array.size(key_levels) > 0
+    for i = 0 to array.size(key_levels) - 1
+        lvl = array.get(key_levels, i)
+        bias = array.get(key_bias, i)
+
+        // Color based on bias
+        lbl_color = str.contains(bias, "BULL") ? color.new(color.green, 70) : (str.contains(bias, "BEAR") ? color.new(color.red, 70) : (str.contains(bias, "SUPPORT") ? color.new(color.blue, 70) : (str.contains(bias, "RESIST") ? color.new(color.orange, 70) : color.new(color.gray, 70))))
+
+        txt_color = str.contains(bias, "BULL") ? color.green : (str.contains(bias, "BEAR") ? color.red : (str.contains(bias, "SUPPORT") ? color.blue : (str.contains(bias, "RESIST") ? color.orange : color.gray)))
+
+        label.new(bar_index + 2, lvl, str.tostring(lvl, "#.##") + "\n" + bias, style=label.style_label_left, color=lbl_color, textcolor=txt_color, size=size.tiny, textalign=text.align_left)
+
+// Compact chart info
+if barstate.islast and show_lines
+    prob_c = probability >= 70 ? color.green : (probability >= 50 ? color.yellow : color.red)
+    label.new(bar_index, high + atr * 1.2, str.tostring(probability, "#") + "%", style=label.style_none, textcolor=prob_c, size=size.small)
+
+    dir_c = str.contains(direction, "BULL") ? color.green : (str.contains(direction, "BEAR") ? color.red : color.gray)
+    label.new(bar_index, high + atr * 2, direction, style=label.style_none, textcolor=dir_c, size=size.tiny)
+
+// ════════════════════════ DASHBOARD ════════════════════════
+
+var table dash = table.new(position.top_right, 2, 20, bgcolor=color.new(color.black, 5), border_width=1, border_color=color.new(color.gray, 60))
+
+if barstate.islast and show_dash
+    r = 0
+
+    // Header
+    table.cell(dash, 0, r, "DAX ORB ULTIMATE", text_color=color.white, bgcolor=color.new(color.blue, 30), text_size=size.small)
+    table.cell(dash, 1, r, timeframe.period, text_color=color.yellow, bgcolor=color.new(color.blue, 30), text_size=size.tiny)
+
+    // Current Day
+    r += 1
+    table.cell(dash, 0, r, "TODAY H/L", text_color=color.aqua, text_size=size.tiny)
+    table.cell(dash, 1, r, "", text_color=color.white)
+
+    r += 1
+    table.cell(dash, 0, r, "High", text_color=color.gray, text_size=size.tiny)
+    table.cell(dash, 1, r, str.tostring(today_high, "#.##"), text_color=color.lime, text_size=size.tiny)
+
+    r += 1
+    table.cell(dash, 0, r, "Low", text_color=color.gray, text_size=size.tiny)
+    table.cell(dash, 1, r, str.tostring(today_low, "#.##"), text_color=color.red, text_size=size.tiny)
+
+    r += 1
+    table.cell(dash, 0, r, "Range", text_color=color.gray, text_size=size.tiny)
+    today_range = today_high - today_low
+    table.cell(dash, 1, r, str.tostring(today_range, "#") + "p", text_color=color.aqua, text_size=size.tiny)
+
+    // Previous Day
+    r += 1
+    table.cell(dash, 0, r, "PREV H/L", text_color=color.aqua, text_size=size.tiny)
+    table.cell(dash, 1, r, str.tostring(yest_size, "#") + "p", text_color=daily_ok ? color.lime : color.red, text_size=size.tiny)
+
+    // ORB Status with real-time values
+    r += 1
+    table.cell(dash, 0, r, "ORB 7:40-8:00", text_color=color.aqua, text_size=size.tiny)
+    orb_status = is_building ? "BUILDING" : (orb_ready ? "READY" : "WAIT")
+    orb_clr = is_building ? color.orange : (orb_ready ? color.lime : color.gray)
+    table.cell(dash, 1, r, orb_status, text_color=orb_clr, text_size=size.tiny)
+
+    r += 1
+    table.cell(dash, 0, r, "High", text_color=color.gray, text_size=size.tiny)
+    orb_h_txt = not na(current_orb_h) ? str.tostring(current_orb_h, "#.##") : "---"
+    table.cell(dash, 1, r, orb_h_txt, text_color=is_building ? color.orange : color.green, text_size=size.tiny)
+
+    r += 1
+    table.cell(dash, 0, r, "Low", text_color=color.gray, text_size=size.tiny)
+    orb_l_txt = not na(current_orb_l) ? str.tostring(current_orb_l, "#.##") : "---"
+    table.cell(dash, 1, r, orb_l_txt, text_color=is_building ? color.orange : color.red, text_size=size.tiny)
+
+    r += 1
+    table.cell(dash, 0, r, "Size", text_color=color.gray, text_size=size.tiny)
+    orb_size = not na(current_orb_h) and not na(current_orb_l) ? current_orb_h - current_orb_l : 0
+    table.cell(dash, 1, r, str.tostring(orb_size, "#") + "p", text_color=color.yellow, text_size=size.tiny)
+
+    // Strategies
+    r += 1
+    table.cell(dash, 0, r, "STRATEGIES", text_color=color.aqua, text_size=size.tiny)
+    table.cell(dash, 1, r, str.tostring(bull_v) + "B " + str.tostring(bear_v) + "S", text_color=color.yellow, text_size=size.tiny)
+
+    // Analytics
+    r += 1
+    table.cell(dash, 0, r, "PROBABILITY", text_color=color.white, bgcolor=color.new(color.purple, 70), text_size=size.small)
+    prob_c = probability >= 70 ? color.lime : (probability >= 50 ? color.yellow : color.red)
+    table.cell(dash, 1, r, str.tostring(probability, "#") + "%", text_color=prob_c, bgcolor=color.new(color.purple, 70), text_size=size.small)
+
+    r += 1
+    table.cell(dash, 0, r, "Direction", text_color=color.gray, text_size=size.tiny)
+    dir_c = str.contains(direction, "BULL") ? color.lime : (str.contains(direction, "BEAR") ? color.red : color.gray)
+    table.cell(dash, 1, r, direction, text_color=dir_c, text_size=size.tiny)
+
+    r += 1
+    table.cell(dash, 0, r, "Chart", text_color=color.gray, text_size=size.tiny)
+    qual_c = quality == "CLEAN" ? color.lime : (quality == "GOOD" ? color.green : (quality == "OK" ? color.yellow : color.red))
+    table.cell(dash, 1, r, quality, text_color=qual_c, text_size=size.tiny)
+
+    r += 1
+    table.cell(dash, 0, r, "OK Trade?", text_color=color.gray, text_size=size.tiny)
+    table.cell(dash, 1, r, ok_trade ? "YES" : "NO", text_color=ok_trade ? color.lime : color.red, text_size=size.tiny)
+
+    // Position Status
+    r += 1
+    pos_txt = in_long ? "IN LONG" : (in_short ? "IN SHORT" : "NO POSITION")
+    pos_c = in_long ? color.lime : (in_short ? color.red : color.gray)
+    table.cell(dash, 0, r, "POSITION", text_color=color.white, bgcolor=color.new(color.blue, 50), text_size=size.small)
+    table.cell(dash, 1, r, pos_txt, text_color=pos_c, bgcolor=color.new(color.blue, 50), text_size=size.small)
+
+    // Show trailing stops if in position
+    if in_long and not na(trailing_sl_long)
+        r += 1
+        table.cell(dash, 0, r, "Trail SL", text_color=color.gray, text_size=size.tiny)
+        table.cell(dash, 1, r, str.tostring(trailing_sl_long, "#.##"), text_color=color.red, text_size=size.tiny)
+
+        r += 1
+        table.cell(dash, 0, r, "Trail TP", text_color=color.gray, text_size=size.tiny)
+        table.cell(dash, 1, r, str.tostring(trailing_tp_long, "#.##"), text_color=color.lime, text_size=size.tiny)
+
+        r += 1
+        table.cell(dash, 0, r, "Profit", text_color=color.gray, text_size=size.tiny)
+        pnl = close - buy_entry
+        pnl_c = pnl > 0 ? color.lime : color.red
+        table.cell(dash, 1, r, str.tostring(pnl, "#.#") + "p", text_color=pnl_c, text_size=size.tiny)
+
+    if in_short and not na(trailing_sl_short)
+        r += 1
+        table.cell(dash, 0, r, "Trail SL", text_color=color.gray, text_size=size.tiny)
+        table.cell(dash, 1, r, str.tostring(trailing_sl_short, "#.##"), text_color=color.red, text_size=size.tiny)
+
+        r += 1
+        table.cell(dash, 0, r, "Trail TP", text_color=color.gray, text_size=size.tiny)
+        table.cell(dash, 1, r, str.tostring(trailing_tp_short, "#.##"), text_color=color.lime, text_size=size.tiny)
+
+        r += 1
+        table.cell(dash, 0, r, "Profit", text_color=color.gray, text_size=size.tiny)
+        pnl = sell_entry - close
+        pnl_c = pnl > 0 ? color.lime : color.red
+        table.cell(dash, 1, r, str.tostring(pnl, "#.#") + "p", text_color=pnl_c, text_size=size.tiny)
+
+    // Signal
+    r += 1
+    table.cell(dash, 0, r, "SIGNAL", text_color=color.white, bgcolor=color.new(color.green, 50), text_size=size.small)
+    sig_txt = buy_final ? "BUY NOW" : (sell_final ? "SELL NOW" : "WAIT")
+    sig_c = buy_final ? color.lime : (sell_final ? color.red : color.gray)
+    table.cell(dash, 1, r, sig_txt, text_color=sig_c, bgcolor=color.new(color.green, 50), text_size=size.small)
+
+    // IMMEDIATE Trade Levels - Show as soon as ORB is ready
+    if orb_ready and not na(long_entry) and not na(short_entry)
+        r += 1
+        table.cell(dash, 0, r, "LONG LEVELS", text_color=color.lime, bgcolor=color.new(color.green, 70), text_size=size.tiny)
+        table.cell(dash, 1, r, "", text_color=color.white)
+
+        r += 1
+        table.cell(dash, 0, r, "Entry", text_color=color.gray, text_size=size.tiny)
+        table.cell(dash, 1, r, str.tostring(long_entry, "#.##"), text_color=color.white, text_size=size.tiny)
+
+        r += 1
+        table.cell(dash, 0, r, "SL", text_color=color.gray, text_size=size.tiny)
+        table.cell(dash, 1, r, str.tostring(long_sl, "#.##"), text_color=color.red, text_size=size.tiny)
+
+        r += 1
+        table.cell(dash, 0, r, "TP", text_color=color.gray, text_size=size.tiny)
+        table.cell(dash, 1, r, str.tostring(long_tp, "#.##"), text_color=color.lime, text_size=size.tiny)
+
+        r += 1
+        table.cell(dash, 0, r, "SHORT LEVELS", text_color=color.red, bgcolor=color.new(color.red, 70), text_size=size.tiny)
+        table.cell(dash, 1, r, "", text_color=color.white)
+
+        r += 1
+        table.cell(dash, 0, r, "Entry", text_color=color.gray, text_size=size.tiny)
+        table.cell(dash, 1, r, str.tostring(short_entry, "#.##"), text_color=color.white, text_size=size.tiny)
+
+        r += 1
+        table.cell(dash, 0, r, "SL", text_color=color.gray, text_size=size.tiny)
+        table.cell(dash, 1, r, str.tostring(short_sl, "#.##"), text_color=color.red, text_size=size.tiny)
+
+        r += 1
+        table.cell(dash, 0, r, "TP", text_color=color.gray, text_size=size.tiny)
+        table.cell(dash, 1, r, str.tostring(short_tp, "#.##"), text_color=color.lime, text_size=size.tiny)
+
+// ════════════════════════ ALERTS ════════════════════════
+
+alertcondition(buy_final, "BUY Signal", "DAX ORB BUY")
+alertcondition(sell_final, "SELL Signal", "DAX ORB SELL")
+alertcondition(orb_ready and not orb_ready[1], "ORB Ready", "DAX ORB READY")
+alertcondition(is_building and not is_building[1], "ORB Building", "DAX ORB BUILDING")
+alertcondition(ok_trade and not ok_trade[1], "Ready to Trade", "DAX OK")
